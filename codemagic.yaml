@@ -15,12 +15,14 @@ workflows:
       vars:
         BUNDLE_ID: com.example.wifianalytics   # CHANGE-ME (same as below)
     scripts:
+      - name: Show Flutter version
+        script: flutter --version
       - name: Generate platform folders
-        script: flutter create --org com.wifianalytics --project-name wifi_analytics --platforms=android,ios .
-      - name: Apply WiFi Analytics settings
-        script: dart run tool/setup.dart
+        script: flutter create --no-pub --org com.wifianalytics --project-name wifi_analytics --platforms=android,ios .
       - name: Get packages
         script: flutter pub get
+      - name: Apply WiFi Analytics settings
+        script: dart run tool/setup.dart
       - name: Build APK
         script: flutter build apk --release --build-number=$BUILD_NUMBER
     artifacts:
@@ -45,12 +47,14 @@ workflows:
       vars:
         BUNDLE_ID: com.example.wifianalytics           # CHANGE-ME (same as above)
     scripts:
+      - name: Show Flutter version
+        script: flutter --version
       - name: Generate platform folders
-        script: flutter create --org com.wifianalytics --project-name wifi_analytics --platforms=android,ios .
-      - name: Apply WiFi Analytics settings
-        script: dart run tool/setup.dart
+        script: flutter create --no-pub --org com.wifianalytics --project-name wifi_analytics --platforms=android,ios .
       - name: Get packages
         script: flutter pub get
+      - name: Apply WiFi Analytics settings
+        script: dart run tool/setup.dart
       - name: Install CocoaPods
         script: cd ios && pod install --repo-update
       - name: Set up code signing
