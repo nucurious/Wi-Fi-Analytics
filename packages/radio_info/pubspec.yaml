@@ -1,0 +1,21 @@
+name: radio_info
+description: Serving-cell radio technology and signal metrics for WiFi Analytics.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.wifianalytics.radio_info
+        pluginClass: RadioInfoPlugin
+      ios:
+        pluginClass: RadioInfoPlugin

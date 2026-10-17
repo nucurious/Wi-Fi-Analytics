@@ -1,0 +1,69 @@
+# Codemagic cloud builds for WiFi Analytics.
+# No Mac or local Flutter install needed. See BUILD_GUIDE.md.
+#
+# >>> Before your first iPhone build, change the TWO lines marked CHANGE-ME
+# >>> to the Bundle ID you registered with Apple (they must match).
+
+workflows:
+  # ---------------------------------------------------------------- Android
+  android-apk:
+    name: Android APK
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        BUNDLE_ID: com.example.wifianalytics   # CHANGE-ME (same as below)
+    scripts:
+      - name: Generate platform folders
+        script: flutter create --org com.wifianalytics --project-name wifi_analytics --platforms=android,ios .
+      - name: Apply WiFi Analytics settings
+        script: dart run tool/setup.dart
+      - name: Get packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release --build-number=$BUILD_NUMBER
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+
+  # ---------------------------------------------------------------- iPhone -> TestFlight
+  ios-testflight:
+    name: iPhone TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    integrations:
+      # Name you gave the App Store Connect API key in Codemagic
+      # (Team/User settings > Integrations > Developer Portal).
+      app_store_connect: WiFi Analytics key
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.wifianalytics   # CHANGE-ME
+      vars:
+        BUNDLE_ID: com.example.wifianalytics           # CHANGE-ME (same as above)
+    scripts:
+      - name: Generate platform folders
+        script: flutter create --org com.wifianalytics --project-name wifi_analytics --platforms=android,ios .
+      - name: Apply WiFi Analytics settings
+        script: dart run tool/setup.dart
+      - name: Get packages
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: cd ios && pod install --repo-update
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-name=1.0.0 \
+            --build-number=$BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
