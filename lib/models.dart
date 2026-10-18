@@ -27,6 +27,23 @@ class RadioSnapshot {
   String? get wifiSsid => _s('wifiSsid');
   int? get wifiChannel => _i('wifiChannel');
   String? get wifiBand => _s('wifiBand');
+  String? get wifiBssid => _s('wifiBssid');
+  String? get wifiStandard => _s('wifiStandard');
+
+  /// "Wi-Fi 6E (ax)" when a Wi-Fi 6 link is on 6 GHz, else the raw standard.
+  String? get wifiGeneration {
+    final s = wifiStandard;
+    if (s == null || s == 'Unknown') return null;
+    if (s.startsWith('Wi-Fi 6/6E')) return wifiBand == '6 GHz' ? 'Wi-Fi 6E (ax)' : 'Wi-Fi 6 (ax)';
+    return s;
+  }
+
+  /// Short AP description for screens, e.g. "Wi-Fi 7 (be) · a4:2b:b0:12:34:56".
+  String? get apSummary {
+    if (!isWifi) return null;
+    final parts = [if (wifiGeneration != null) wifiGeneration!, if (wifiBssid != null) wifiBssid!];
+    return parts.isEmpty ? null : parts.join('  ·  ');
+  }
   String? get band => _s('lteBand') != null ? 'B${_s('lteBand')}' : _s('nrBand');
   int? get pci => _i('ltePci') ?? _i('nrPci');
 
@@ -134,6 +151,9 @@ class TestRecord {
   final LatencyStats? latency;
   final String? latencyTarget; // e.g. "TWAMP 203.0.113.5:862"
 
+  /// Wi-Fi generation and BSSID at test start (Wi-Fi tests only).
+  final String? apInfo;
+
   TestRecord({
     required this.testId,
     required this.type,
@@ -152,9 +172,10 @@ class TestRecord {
     this.p90Mbps,
     this.latency,
     this.latencyTarget,
+    this.apInfo,
   });
 
-  TestRecord withLatency(LatencyStats? l, String? target) => TestRecord(
+  TestRecord withLatency(LatencyStats? l, String? target, {String? apInfo}) => TestRecord(
         testId: testId,
         type: type,
         start: start,
@@ -172,6 +193,7 @@ class TestRecord {
         p90Mbps: p90Mbps,
         latency: l,
         latencyTarget: l == null ? null : target,
+        apInfo: apInfo ?? this.apInfo,
       );
 
   double? get lossPercent => (lost != null && total != null && total! > 0) ? lost! * 100 / total! : null;

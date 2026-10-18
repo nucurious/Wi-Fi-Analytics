@@ -199,6 +199,13 @@ class _StatusCard extends StatelessWidget {
         if (r.wifiChannel != null) 'ch ${r.wifiChannel}',
         if (r.wifiBand != null) r.wifiBand!,
       ].join('  ·  ')));
+      final gen = r.wifiGeneration;
+      if (gen != null || r.wifiBssid != null) {
+        rows.add(_row(context, Icons.router, 'AP', [
+          if (gen != null) gen,
+          r.wifiBssid ?? 'BSSID hidden (allow Location)',
+        ].join('  ·  ')));
+      }
     }
     final cell = <String>[
       if (r.lteRsrp != null) 'LTE RSRP ${r.lteRsrp}',
@@ -375,6 +382,7 @@ class _ResultTile extends StatelessWidget {
         if (r.jitterMs != null) 'jitter ${r.jitterMs!.toStringAsFixed(2)} ms',
         if (r.lossPercent != null) 'loss ${r.lossPercent!.toStringAsFixed(2)}% (${r.lost}/${r.total})',
         if (latencyText != null) latencyText,
+        if (r.apInfo != null) r.apInfo!,
         if (r.stoppedByUser) 'stopped',
       ].join('  ·  ');
     }

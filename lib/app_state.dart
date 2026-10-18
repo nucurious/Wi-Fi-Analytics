@@ -442,7 +442,8 @@ class AppState extends ChangeNotifier {
     final probe = _probe;
     if (probe != null) await Future.delayed(probe.timeout);
     _windows.remove(window);
-    record = record.withLatency(window.acc.isEmpty ? null : window.acc.stats(), probe == null ? null : latencyLabel);
+    record = record.withLatency(window.acc.isEmpty ? null : window.acc.stats(), probe == null ? null : latencyLabel,
+        apInfo: startRadio.apSummary);
 
     recent.insert(0, record);
     if (recent.length > 50) recent.removeLast();
@@ -672,7 +673,7 @@ class AppState extends ChangeNotifier {
         durationSeconds: window.end!.difference(start).inMilliseconds / 1000,
         stoppedByUser: _cancelSequence,
         error: (stats == null || stats.received == 0) ? (latencyProblem ?? 'No replies') : null,
-      ).withLatency(stats, latencyLabel);
+      ).withLatency(stats, latencyLabel, apInfo: startRadio.apSummary);
       recent.insert(0, record);
       if (recent.length > 50) recent.removeLast();
       store.addTest([
