@@ -11,6 +11,7 @@ import 'iperf/iperf_background.dart';
 import 'iperf/iperf_client.dart';
 import 'latency/latency_probe.dart';
 import 'models.dart';
+import 'util/host_address.dart';
 import 'services/data_store.dart';
 import 'services/session_mailer.dart';
 
@@ -116,9 +117,13 @@ class Settings {
 
   factory Settings.fromJson(Map<String, dynamic> j) {
     final d = Settings();
+    // Repair addresses saved by older versions, e.g. "2600:...:9c38:5201"
+    // (port stuck on the end) or with stray spaces: the port moves to its field.
+    final (savedHost, hostPort) = splitHostPort((j['host'] as String?) ?? '');
+    final (savedTwamp, twampPort) = splitHostPort((j['twampHost'] as String?) ?? d.twampHost);
     return Settings(
-      host: (j['host'] as String?)?.trim().isNotEmpty == true ? j['host'] as String : d.host,
-      port: (j['port'] as num?)?.toInt() ?? d.port,
+      host: savedHost.isNotEmpty ? savedHost : d.host,
+      port: hostPort ?? (j['port'] as num?)?.toInt() ?? d.port,
       tcpDuration: (j['tcpDuration'] as num?)?.toInt() ?? d.tcpDuration,
       tcpParallel: (j['tcpParallel'] as num?)?.toInt() ?? d.tcpParallel,
       udpMbps: (j['udpMbps'] as num?)?.toDouble() ?? d.udpMbps,
@@ -128,8 +133,8 @@ class Settings {
       keepScreenOn: j['keepScreenOn'] as bool? ?? d.keepScreenOn,
       logGpsTrack: j['logGpsTrack'] as bool? ?? d.logGpsTrack,
       latencyDuringTests: j['latencyDuringTests'] as bool? ?? d.latencyDuringTests,
-      twampHost: j['twampHost'] as String? ?? d.twampHost,
-      twampPort: (j['twampPort'] as num?)?.toInt() ?? d.twampPort,
+      twampHost: savedTwamp,
+      twampPort: twampPort ?? (j['twampPort'] as num?)?.toInt() ?? d.twampPort,
       latencyRateHz: (j['latencyRateHz'] as num?)?.toInt() ?? d.latencyRateHz,
       twampPacketBytes: (j['twampPacketBytes'] as num?)?.toInt() ?? d.twampPacketBytes,
       pingHost: j['pingHost'] as String? ?? d.pingHost,

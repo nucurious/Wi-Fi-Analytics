@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import '../util/host_address.dart';
 
 enum IperfProtocol { tcp, udp }
 
@@ -512,7 +513,8 @@ class IperfClient {
     await _intervalController.close();
   }
 
-  static Future<InternetAddress> _resolve(String host) async {
+  static Future<InternetAddress> _resolve(String raw) async {
+    final (host, _) = splitHostPort(raw); // last line of defence against "addr:port"
     final parsed = InternetAddress.tryParse(host);
     if (parsed != null) return parsed;
     try {
@@ -520,7 +522,9 @@ class IperfClient {
       return list.firstWhere((a) => a.type == InternetAddressType.IPv4,
           orElse: () => list.first);
     } on SocketException {
-      throw IperfException('Could not find server "$host". Check the address.');
+      throw IperfException(host.contains(':')
+          ? 'Server "$host" is not a valid IPv6 address. Check for a typo; put the port in the Port field.'
+          : 'Could not find server "$host". Check the address.');
     }
   }
 
