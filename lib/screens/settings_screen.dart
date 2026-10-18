@@ -1,7 +1,55 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+
+/// Cleans a typed server address and splits off a port if one was included:
+/// "10.0.0.5:5201" -> (10.0.0.5, 5201); "[2600::1]:5201" -> (2600::1, 5201);
+/// "[2600::1]" -> (2600::1, null); spaces removed; a plain IPv6 address is
+/// left as is (its colons are not a port).
+(String, int?) splitHostPort(String raw) {
+  var s = raw.replaceAll(RegExp(r'\s'), '');
+  s = s.replaceFirst(RegExp(r'^[a-zA-Z]+://'), ''); // pasted "http://..."
+  if (s.endsWith('/')) s = s.substring(0, s.length - 1);
+  final bracket = RegExp(r'^\[([0-9a-fA-F:.%]+)\](?::(\d{1,5}))?$').firstMatch(s);
+  if (bracket != null) return (bracket[1]!, bracket[2] == null ? null : int.parse(bracket[2]!));
+  final colons = ':'.allMatches(s).length;
+  // IPv6 with the port stuck on the end, no brackets: "2600:...:9c38:5201".
+  if (colons >= 2 && InternetAddress.tryParse(s) == null) {
+    final i = s.lastIndexOf(':');
+    final port = int.tryParse(s.substring(i + 1));
+    final head = s.substring(0, i);
+    if (port != null && port <= 65535 && InternetAddress.tryParse(head) != null) return (head, port);
+  }
+  if (colons == 1) {
+    final i = s.lastIndexOf(':');
+    final port = int.tryParse(s.substring(i + 1));
+    if (port != null) return (s.substring(0, i), port);
+  }
+  return (s, null);
+}
+
+/// Error text for an address that can't be right, or null if it looks fine.
+String? hostProblem(String raw, {bool required = true}) {
+  final (host, _) = splitHostPort(raw);
+  if (host.isEmpty) return required ? 'Required' : null;
+  if (':'.allMatches(host).length >= 2 && InternetAddress.tryParse(host) == null) {
+    return 'Not a valid IPv6 address. Check for a typo, and leave the port out';
+  }
+  if (RegExp(r'[^A-Za-z0-9.:%_-]').hasMatch(host)) return 'Address has characters that do not belong in it';
+  return null;
+}
+
+/// Known test servers, offered as one-tap presets under the address fields.
+/// Tapping one fills the fields; they stay editable.
+const serverPresets = <(String, String, int)>[
+  ('Lab (public IPv4)', '96.37.191.0', 5201),
+  ('Lab (IPv6)', '2600:6ce6:4406:6006:8b6e:251:99cb:9c38', 5201),
+  ('Lab (on lab Wi-Fi)', '10.92.5.100', 5201),
+  ('Clouvider Dallas', 'dal.speedtest.clouvider.net', 5200),
+];
 
 class SettingsScreen extends StatefulWidget {
   final AppState state;
@@ -72,9 +120,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    // Accept "address:port" / "[IPv6]:port": move the port to its own field.
+    final (host, typedPort) = splitHostPort(_host.text);
+    final port = typedPort ?? int.parse(_port.text);
+    final (twHost, typedTwPort) = splitHostPort(_twHost.text);
+    final twPort = typedTwPort ?? int.parse(_twPort.text);
+    setState(() {
+      _host.text = host;
+      _port.text = '$port';
+      _twHost.text = twHost;
+      _twPort.text = '$twPort';
+    });
     await widget.state.updateSettings(Settings(
-      host: _host.text.trim(),
-      port: int.parse(_port.text),
+      host: host,
+      port: port,
       tcpDuration: int.parse(_tcpDur.text),
       tcpParallel: int.parse(_tcpPar.text),
       udpMbps: double.parse(_udpMbps.text),
@@ -84,8 +143,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       keepScreenOn: _keepOn,
       logGpsTrack: _logTrack,
       latencyDuringTests: _latOn,
-      twampHost: _twHost.text.trim(),
-      twampPort: int.parse(_twPort.text),
+      twampHost: twHost,
+      twampPort: twPort,
       latencyRateHz: int.parse(_latRate.text),
       twampPacketBytes: int.parse(_twPkt.text),
       pingHost: _pingHost.text.trim(),
@@ -120,12 +179,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _section('iperf3 server'),
           TextFormField(
             controller: _host,
-            decoration: const InputDecoration(labelText: 'Server address', hintText: 'iperf.example.com or 203.0.113.10'),
+            decoration: const InputDecoration(
+              labelText: 'Server address',
+              hintText: '203.0.113.10, 2600:1234::10 or iperf.example.com',
+              helperText: 'Address only; the port goes below (address:port is also accepted)',
+            ),
             keyboardType: TextInputType.url,
             autocorrect: false,
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+            validator: (v) => hostProblem(v ?? ''),
           ),
           _intField(_port, 'Port', min: 1, max: 65535, helper: 'iperf3 default is 5201'),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final (label, host, port) in serverPresets)
+                ActionChip(
+                  label: Text(label),
+                  onPressed: () => setState(() {
+                    _host.text = host;
+                    _port.text = '$port';
+                  }),
+                ),
+            ],
+          ),
+          Text('Tap to fill in, then Save settings. You can still edit the fields.',
+              style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 16),
           _section('Speed test (TCP)'),
           _intField(_tcpDur, 'Duration per direction (seconds)', min: 3, max: 120),
@@ -163,6 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             keyboardType: TextInputType.url,
             autocorrect: false,
+            validator: (v) => hostProblem(v ?? '', required: false),
           ),
           _intField(_twPort, 'Reflector UDP port', min: 1, max: 65535, helper: 'TWAMP default is 862'),
           _intField(_latRate, 'Packets per second', min: 1, max: 50, helper: 'Ping is limited to 5 per second'),

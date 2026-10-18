@@ -117,7 +117,7 @@ class Settings {
   factory Settings.fromJson(Map<String, dynamic> j) {
     final d = Settings();
     return Settings(
-      host: j['host'] as String? ?? d.host,
+      host: (j['host'] as String?)?.trim().isNotEmpty == true ? j['host'] as String : d.host,
       port: (j['port'] as num?)?.toInt() ?? d.port,
       tcpDuration: (j['tcpDuration'] as num?)?.toInt() ?? d.tcpDuration,
       tcpParallel: (j['tcpParallel'] as num?)?.toInt() ?? d.tcpParallel,
