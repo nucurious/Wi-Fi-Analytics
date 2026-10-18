@@ -440,7 +440,14 @@ class IperfClient {
           header.setUint32(0, now ~/ 1000000);
           header.setUint32(4, now % 1000000);
           header.setUint32(8, (s.sentPackets + 1) & 0xFFFFFFFF);
-          final sent = s.socket.send(payload, s.address, s.port);
+          int sent;
+          try {
+            sent = s.socket.send(payload, s.address, s.port);
+          } catch (_) {
+            // Brief network change (e.g. signal drop). Count the packet as
+            // sent so the server records it as lost, and keep going.
+            sent = len;
+          }
           if (sent <= 0) break; // OS buffer full; try again next tick
           s.sentPackets++;
           s.bytes += len;
