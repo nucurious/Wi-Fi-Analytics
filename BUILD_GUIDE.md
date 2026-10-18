@@ -155,7 +155,7 @@ When a session stops (Stop on a drive/walk/repeat run, or the end of a single te
 1. Use a Gmail account just for sending. Turn on **2-Step Verification**, then create an **App password** (Google Account → Security → App passwords).
 2. In the app, **Settings → Email results**: enter the sender Gmail address and the 16-character app password, check the IMEI last 4 digits (dial `*#06#`; Android 10+ and iPhone don't let apps read it), then **Save settings**.
 
-Attachments are gzip-compressed CSVs named `<Make>_<Model>_<IMEI last 4>_<Profile>_<date-time>_<file>.csv.gz`, for example `samsung_SM-S938U_1234_Walk_20261018-121500_tests.csv.gz`. Large sessions are split across several emails (each under Gmail's limit). With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
+The attachment is one Excel workbook named `<Make>_<Model>_<IMEI last 4>_<Profile>_<date-time>.xlsx` (for example `samsung_SM-S938U_1234_Walk_20261018-121500.xlsx`) with a sheet each for **Tests**, **Speed (per second)**, **Latency (per second)** and **GPS track**. If a session is too big for one email (long weekend runs), its data is sent as gzip-compressed CSVs split across several emails instead. With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
 
 The app password is stored on the phone in the app's private storage. Use a sending account that holds nothing else.
 

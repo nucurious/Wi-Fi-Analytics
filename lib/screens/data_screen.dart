@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
@@ -37,11 +39,18 @@ class _DataScreenState extends State<DataScreen> {
     if (mounted) setState(() => _counts = counts);
   }
 
-  Future<void> _export(BuildContext buttonContext) async {
+  /// Excel workbook (one sheet per log) or compressed CSVs, via the share sheet.
+  Future<void> _export(BuildContext buttonContext, {required bool excel}) async {
     setState(() => _busy = true);
     try {
       final prefix = widget.state.devicePrefix;
-      final files = await widget.state.store.exportCompressed(prefix);
+      final List<File> files;
+      if (excel) {
+        final x = await widget.state.store.exportXlsx(prefix);
+        files = x == null ? <File>[] : [x];
+      } else {
+        files = await widget.state.store.exportCompressed(prefix);
+      }
       if (files.isEmpty) {
         _snack('Nothing to export yet. Run a test first.');
         return;
@@ -56,13 +65,15 @@ class _DataScreenState extends State<DataScreen> {
             'or clear the logs after exporting.');
       }
       final box = buttonContext.findRenderObject() as RenderBox?;
+      String mime(File f) => f.path.endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : f.path.endsWith('.gz')
+              ? 'application/gzip'
+              : 'text/csv';
       await SharePlus.instance.share(ShareParams(
-        files: files
-            .map((f) => XFile(f.path, mimeType: f.path.endsWith('.gz') ? 'application/gzip' : 'text/csv'))
-            .toList(),
+        files: files.map((f) => XFile(f.path, mimeType: mime(f))).toList(),
         subject: 'WiFi Analytics export: $prefix',
-        text: 'WiFi Analytics test data from $prefix (${mb.toStringAsFixed(1)} MB, gzip-compressed CSV: '
-            'open with 7-Zip on Windows or double-click on a Mac)',
+        text: 'WiFi Analytics test data from $prefix (${mb.toStringAsFixed(1)} MB)',
         sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
       ));
     } catch (e) {
@@ -162,10 +173,20 @@ class _DataScreenState extends State<DataScreen> {
             builder: (buttonContext) => SizedBox(
               height: 52,
               child: FilledButton.icon(
-                onPressed: _busy ? null : () => _export(buttonContext),
-                icon: const Icon(Icons.ios_share),
-                label: const Text('Export CSV files (compressed)', style: TextStyle(fontSize: 16)),
+                onPressed: _busy ? null : () => _export(buttonContext, excel: true),
+                icon: _busy
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.ios_share),
+                label: const Text('Export Excel workbook', style: TextStyle(fontSize: 16)),
               ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Builder(
+            builder: (buttonContext) => OutlinedButton.icon(
+              onPressed: _busy ? null : () => _export(buttonContext, excel: false),
+              icon: const Icon(Icons.folder_zip_outlined),
+              label: const Text('Export compressed CSV files'),
             ),
           ),
           const SizedBox(height: 8),

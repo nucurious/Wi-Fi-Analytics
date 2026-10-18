@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 
 import '../models.dart';
+import 'xlsx_writer.dart';
 
 /// Appends rows to CSV files in the app's documents folder.
 ///
@@ -15,7 +18,8 @@ import '../models.dart';
 ///  - sites.csv      saved sites
 class DataStore {
   late Directory _dir;
-  final Map<String, IOSink> _sinks = {};
+  final Map<String, StringBuffer> _buffers = {};
+  Future<void> _flushChain = Future.value();
 
   static const testsFile = 'tests.csv';
   static const samplesFile = 'samples.csv';
@@ -72,16 +76,16 @@ class DataStore {
   File file(String name) => File('${_dir.path}/$name');
 
   void _append(String name, List<String> header, List<Object?> row) {
-    var sink = _sinks[name];
-    if (sink == null) {
+    var buf = _buffers[name];
+    if (buf == null) {
+      // First write this run: rotate an old-format file, start a new one with a header.
       final f = file(name);
       _rotateIfHeaderChanged(f, header);
       final isNew = !f.existsSync() || f.lengthSync() == 0;
-      sink = f.openWrite(mode: FileMode.append);
-      if (isNew) sink.writeln(_csvLine(header));
-      _sinks[name] = sink;
+      buf = _buffers[name] = StringBuffer();
+      if (isNew) buf.writeln(_csvLine(header));
     }
-    sink.writeln(_csvLine(row));
+    buf.writeln(_csvLine(row));
   }
 
   /// If a log was written by an older app version with different columns,
@@ -114,18 +118,25 @@ class DataStore {
   void addTrack(List<Object?> row) => _append(trackFile, trackHeader, row);
   void addLatency(List<Object?> row) => _append(latencyFile, latencyHeader, row);
 
-  Future<void> flush() async {
-    for (final s in _sinks.values) {
-      await s.flush();
-    }
+  /// Appends buffered rows to the files. Flushes run one after another, and
+  /// new rows go into the buffer meanwhile, so writes never collide (the old
+  /// IOSink threw "StreamSink is bound to a stream" when a row arrived during
+  /// a flush, losing that row).
+  Future<void> flush() {
+    _flushChain = _flushChain.then((_) async {
+      for (final e in _buffers.entries) {
+        if (e.value.isEmpty) continue;
+        final text = e.value.toString();
+        e.value.clear();
+        await file(e.key).writeAsString(text, mode: FileMode.append);
+      }
+    }).catchError((Object _) {});
+    return _flushChain;
   }
 
   Future<void> _closeAll() async {
-    for (final s in _sinks.values) {
-      await s.flush();
-      await s.close();
-    }
-    _sinks.clear();
+    await flush();
+    _buffers.clear();
   }
 
   /// Rewrites sites.csv / sites.json from the full list.
@@ -180,9 +191,10 @@ class DataStore {
         result.add(await f.copy('${out.path}/${prefix}_$name'));
         continue;
       }
-      final gz = File('${out.path}/${prefix}_$name.gz');
-      await f.openRead().transform(gzip.encoder).pipe(gz.openWrite());
-      result.add(gz);
+      final src = f.path;
+      final dst = '${out.path}/${prefix}_$name.gz';
+      await Isolate.run(() => File(src).openRead().transform(gzip.encoder).pipe(File(dst).openWrite()));
+      result.add(File(dst));
     }
     return result;
   }
@@ -200,14 +212,55 @@ class DataStore {
 
   Future<int> rowCount(String name) async {
     await flush();
-    final f = file(name);
-    if (!await f.exists()) return 0;
+    final path = file(name).path;
+    return Isolate.run(() => _countRows(path));
+  }
+
+  static int _countRows(String path) {
+    final f = File(path);
+    if (!f.existsSync()) return 0;
+    final raf = f.openSync();
     var lines = 0;
-    await for (final _ in f.openRead().transform(utf8.decoder).transform(const LineSplitter())) {
-      lines++;
+    try {
+      final buf = Uint8List(1 << 20);
+      while (true) {
+        final n = raf.readIntoSync(buf);
+        if (n <= 0) break;
+        for (var i = 0; i < n; i++) {
+          if (buf[i] == 10) lines++;
+        }
+      }
+    } finally {
+      raf.closeSync();
     }
     return lines > 0 ? lines - 1 : 0;
   }
+
+  /// One Excel workbook with a sheet per log: Tests, Speed, Latency, GPS track, Sites.
+  /// Built on a background isolate. Returns null if there is nothing to export.
+  Future<File?> exportXlsx(String prefix) async {
+    await flush();
+    final outDir = Directory('${_dir.path}/export');
+    if (await outDir.exists()) await outDir.delete(recursive: true);
+    await outDir.create(recursive: true);
+    final t = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final out = '${outDir.path}/${prefix}_all_${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}.xlsx';
+    final sources = [
+      for (final e in sheetNames.entries) SheetSource(e.value, file(e.key).path),
+    ];
+    final n = await Isolate.run(() => writeXlsx(sources, out));
+    return n == 0 ? null : File(out);
+  }
+
+  /// Worksheet name for each log file.
+  static const sheetNames = {
+    testsFile: 'Tests',
+    samplesFile: 'Speed (per second)',
+    latencyFile: 'Latency (per second)',
+    trackFile: 'GPS track',
+    sitesFile: 'Sites',
+  };
 
   /// Deletes test, sample and track logs. Sites are kept.
   Future<void> clearLogs() async {

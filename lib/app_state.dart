@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:radio_info/radio_info.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'iperf/iperf_background.dart';
 import 'iperf/iperf_client.dart';
 import 'latency/latency_probe.dart';
 import 'models.dart';
@@ -202,7 +203,7 @@ class AppState extends ChangeNotifier {
   final Map<int, _LatencySecond> _latencySeconds = {};
   final List<_TestWindow> _windows = [];
 
-  IperfClient? _client;
+  BackgroundIperfClient? _client;
   bool _cancelSequence = false;
   StreamSubscription<Position>? _positionSub;
   Timer? _radioTimer;
@@ -505,7 +506,7 @@ class AppState extends ChangeNotifier {
     final window = _TestWindow(testId, cfg.label, start);
     _windows.add(window);
 
-    final client = IperfClient(cfg);
+    final client = BackgroundIperfClient(cfg);
     _client = client;
     final sub = client.intervals.listen((iv) {
       currentMbps = iv.mbps;
@@ -817,8 +818,8 @@ class AppState extends ChangeNotifier {
     }
     b
       ..writeln()
-      ..writeln('Attached: this session\'s rows from tests, samples, twamp and gps_track, as gzip-compressed CSV')
-      ..writeln('(.csv.gz: open with 7-Zip on Windows, or double-click on a Mac).');
+      ..writeln('Attached: $prefix.xlsx, one Excel workbook with a sheet each for')
+      ..writeln('Tests, Speed (per second), Latency (per second) and GPS track, for this session only.');
     try {
       final queued = await mailer.queueSession(
         offsets: offsets,
