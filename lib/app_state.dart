@@ -323,6 +323,7 @@ class AppState extends ChangeNotifier {
     elapsed = 0;
     plannedSeconds = cfg.durationSeconds;
     liveSeries.clear();
+    final samples = <double>[];
     notifyListeners();
 
     final client = IperfClient(cfg);
@@ -331,6 +332,7 @@ class AppState extends ChangeNotifier {
       currentMbps = iv.mbps;
       elapsed = iv.elapsedSeconds;
       liveSeries.add(iv.mbps);
+      samples.add(iv.mbps);
       if (liveSeries.length > 600) liveSeries.removeAt(0);
       final now = DateTime.now();
       store.addSample([
@@ -350,6 +352,7 @@ class AppState extends ChangeNotifier {
     TestRecord record;
     try {
       final r = await client.run();
+      final stats = SpeedStats.of(samples);
       record = TestRecord(
         testId: testId,
         type: cfg.label,
@@ -360,6 +363,11 @@ class AppState extends ChangeNotifier {
         lost: r.lostPackets,
         total: r.totalPackets,
         stoppedByUser: r.stoppedByUser,
+        minMbps: stats?.min,
+        maxMbps: stats?.max,
+        medianMbps: stats?.median,
+        p10Mbps: stats?.p10,
+        p90Mbps: stats?.p90,
       );
     } catch (e) {
       final msg = e is IperfException
@@ -391,6 +399,11 @@ class AppState extends ChangeNotifier {
       _local(start),
       record.durationSeconds.toStringAsFixed(1),
       record.mbps?.toStringAsFixed(2),
+      record.minMbps?.toStringAsFixed(2),
+      record.maxMbps?.toStringAsFixed(2),
+      record.medianMbps?.toStringAsFixed(2),
+      record.p10Mbps?.toStringAsFixed(2),
+      record.p90Mbps?.toStringAsFixed(2),
       record.jitterMs?.toStringAsFixed(3),
       record.lost,
       record.total,

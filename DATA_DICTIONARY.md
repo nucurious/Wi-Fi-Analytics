@@ -13,6 +13,8 @@ Rows in `samples.csv` link to `tests.csv` by `test_id`.
 
 ## tests.csv
 
+If you update the app and the columns change, the older log is kept as `tests_old_<date-time>.csv` on the phone and a new `tests.csv` starts.
+
 | Column | Meaning |
 |---|---|
 | test_id | Unique ID: start time + test type |
@@ -20,6 +22,9 @@ Rows in `samples.csv` link to `tests.csv` by `test_id`.
 | start_utc / start_local | Test start time |
 | duration_s | Actual test length in seconds |
 | throughput_mbps | Average throughput. Uploads use the server's received count; downloads use the phone's |
+| min_mbps / max_mbps | Lowest and highest one-second throughput during the test |
+| median_mbps | Middle one-second throughput (less affected by TCP ramp-up than the average) |
+| p10_mbps / p90_mbps | 10th / 90th percentile of one-second throughput: speed you got at least 90% / 10% of the time |
 | jitter_ms | UDP only. RFC 1889 inter-arrival jitter measured by the receiver |
 | lost_packets / total_packets / loss_pct | UDP only. Measured by the receiver |
 | stopped_by_user | 1 if Stop was pressed |

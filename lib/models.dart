@@ -121,6 +121,13 @@ class TestRecord {
   final String? error;
   final bool stoppedByUser;
 
+  /// Per-second throughput statistics (Mbps) over the test.
+  final double? minMbps;
+  final double? maxMbps;
+  final double? medianMbps;
+  final double? p10Mbps;
+  final double? p90Mbps;
+
   TestRecord({
     required this.testId,
     required this.type,
@@ -132,7 +139,33 @@ class TestRecord {
     this.total,
     this.error,
     this.stoppedByUser = false,
+    this.minMbps,
+    this.maxMbps,
+    this.medianMbps,
+    this.p10Mbps,
+    this.p90Mbps,
   });
 
   double? get lossPercent => (lost != null && total != null && total! > 0) ? lost! * 100 / total! : null;
+}
+
+/// Min / max / median / percentiles of per-second throughput samples.
+class SpeedStats {
+  final double min, max, median, p10, p90;
+  const SpeedStats(this.min, this.max, this.median, this.p10, this.p90);
+
+  /// Returns null when there are no samples.
+  static SpeedStats? of(List<double> samples) {
+    if (samples.isEmpty) return null;
+    final s = List<double>.of(samples)..sort();
+    double pct(double p) {
+      // Linear interpolation between closest ranks.
+      final pos = (s.length - 1) * p;
+      final lo = pos.floor();
+      final hi = pos.ceil();
+      return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+    }
+
+    return SpeedStats(s.first, s.last, pct(0.5), pct(0.1), pct(0.9));
+  }
 }

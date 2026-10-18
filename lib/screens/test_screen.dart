@@ -329,6 +329,8 @@ class _ResultTile extends StatelessWidget {
     } else {
       subtitle = [
         '${r.durationSeconds.toStringAsFixed(0)} s',
+        if (r.minMbps != null && r.maxMbps != null)
+          'min ${r.minMbps!.toStringAsFixed(1)} / max ${r.maxMbps!.toStringAsFixed(1)} / median ${r.medianMbps!.toStringAsFixed(1)} Mbps',
         if (r.jitterMs != null) 'jitter ${r.jitterMs!.toStringAsFixed(2)} ms',
         if (r.lossPercent != null) 'loss ${r.lossPercent!.toStringAsFixed(2)}% (${r.lost}/${r.total})',
         if (r.stoppedByUser) 'stopped',

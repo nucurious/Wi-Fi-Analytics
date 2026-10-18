@@ -24,7 +24,8 @@ class DataStore {
   static const settingsJson = 'settings.json';
 
   static final testsHeader = <String>[
-    'test_id', 'test_type', 'start_utc', 'start_local', 'duration_s', 'throughput_mbps', 'jitter_ms',
+    'test_id', 'test_type', 'start_utc', 'start_local', 'duration_s', 'throughput_mbps',
+    'min_mbps', 'max_mbps', 'median_mbps', 'p10_mbps', 'p90_mbps', 'jitter_ms',
     'lost_packets', 'total_packets', 'loss_pct', 'stopped_by_user', 'error',
     'server', 'port', 'parallel_streams', 'udp_target_mbps', 'udp_packet_bytes',
     'site_id', 'site_name', 'device_platform',
@@ -62,12 +63,38 @@ class DataStore {
     var sink = _sinks[name];
     if (sink == null) {
       final f = file(name);
+      _rotateIfHeaderChanged(f, header);
       final isNew = !f.existsSync() || f.lengthSync() == 0;
       sink = f.openWrite(mode: FileMode.append);
       if (isNew) sink.writeln(_csvLine(header));
       _sinks[name] = sink;
     }
     sink.writeln(_csvLine(row));
+  }
+
+  /// If a log was written by an older app version with different columns,
+  /// keep it as e.g. tests_old_20261018-070000.csv and start a fresh file.
+  void _rotateIfHeaderChanged(File f, List<String> header) {
+    if (!f.existsSync() || f.lengthSync() == 0) return;
+    try {
+      final raf = f.openSync();
+      final List<int> head;
+      try {
+        head = raf.readSync(64 * 1024);
+      } finally {
+        raf.closeSync();
+      }
+      final text = utf8.decode(head, allowMalformed: true);
+      final existing = text.split('\n').first.trim();
+      if (existing == _csvLine(header)) return;
+      final t = DateTime.now();
+      String two(int n) => n.toString().padLeft(2, '0');
+      final stamp = '${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}${two(t.second)}';
+      final base = f.path.endsWith('.csv') ? f.path.substring(0, f.path.length - 4) : f.path;
+      f.renameSync('${base}_old_$stamp.csv');
+    } catch (_) {
+      // If anything goes wrong, keep appending to the existing file.
+    }
   }
 
   void addTest(List<Object?> row) => _append(testsFile, testsHeader, row);
