@@ -14,8 +14,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
-  late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur;
-  late bool _keepOn, _logTrack, _latOn;
+  late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap;
+  late bool _keepOn, _logTrack, _latOn, _repeat;
   bool _loaded = false;
 
   @override
@@ -51,6 +51,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _twPkt = TextEditingController(text: '${s.twampPacketBytes}');
     _pingHost = TextEditingController(text: s.pingHost);
     _latDur = TextEditingController(text: '${s.latencyDuration}');
+    _repeat = s.repeatUntilStopped;
+    _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
     setState(() => _loaded = true);
   }
 
@@ -76,6 +78,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       twampPacketBytes: int.parse(_twPkt.text),
       pingHost: _pingHost.text.trim(),
       latencyDuration: int.parse(_latDur.text),
+      repeatUntilStopped: _repeat,
+      repeatIntervalSeconds: int.parse(_repeatGap.text),
     ));
     if (!mounted) return;
     FocusScope.of(context).unfocus();
@@ -152,6 +156,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             autocorrect: false,
           ),
           _intField(_latDur, 'Latency test duration (seconds, 0 = until stopped)', min: 0, max: 86400),
+          const SizedBox(height: 16),
+          _section('Long runs (overnight / weekend)'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Repeat until stopped'),
+            subtitle: const Text('Runs the test again and again, and restarts it after errors or network changes'),
+            value: _repeat,
+            onChanged: (v) => setState(() => _repeat = v),
+          ),
+          _intField(_repeatGap, 'Pause between rounds (seconds)', min: 0, max: 86400,
+              helper: 'e.g. 900 = a speed test every 15 minutes'),
           const SizedBox(height: 16),
           _section('Logging'),
           SwitchListTile(

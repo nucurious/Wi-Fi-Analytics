@@ -33,6 +33,10 @@ class Settings {
   String pingHost;
   int latencyDuration; // stand-alone latency test, 0 = until stopped
 
+  // Long runs (overnight / weekend)
+  bool repeatUntilStopped; // repeat the test, and restart after errors
+  int repeatIntervalSeconds; // pause between rounds
+
   Settings({
     this.host = '',
     this.port = 5201,
@@ -51,6 +55,8 @@ class Settings {
     this.twampPacketBytes = 64,
     this.pingHost = '1.1.1.1',
     this.latencyDuration = 60,
+    this.repeatUntilStopped = false,
+    this.repeatIntervalSeconds = 60,
   });
 
   Map<String, dynamic> toJson() => {
@@ -71,6 +77,8 @@ class Settings {
         'twampPacketBytes': twampPacketBytes,
         'pingHost': pingHost,
         'latencyDuration': latencyDuration,
+        'repeatUntilStopped': repeatUntilStopped,
+        'repeatIntervalSeconds': repeatIntervalSeconds,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -93,6 +101,8 @@ class Settings {
       twampPacketBytes: (j['twampPacketBytes'] as num?)?.toInt() ?? d.twampPacketBytes,
       pingHost: j['pingHost'] as String? ?? d.pingHost,
       latencyDuration: (j['latencyDuration'] as num?)?.toInt() ?? d.latencyDuration,
+      repeatUntilStopped: j['repeatUntilStopped'] as bool? ?? d.repeatUntilStopped,
+      repeatIntervalSeconds: (j['repeatIntervalSeconds'] as num?)?.toInt() ?? d.repeatIntervalSeconds,
     );
   }
 }
@@ -116,6 +126,9 @@ class AppState extends ChangeNotifier {
   double currentMbps = 0;
   double elapsed = 0;
   int plannedSeconds = 0;
+  int round = 0; // repeat mode: current round (1-based)
+  String? waitingText; // repeat mode: countdown between rounds
+  int _failStreak = 0;
   final List<double> liveSeries = [];
   final List<TestRecord> recent = [];
   String? lastError;
@@ -136,6 +149,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<Position>? _positionSub;
   Timer? _radioTimer;
   Timer? _trackTimer;
+  Timer? _flushTimer;
   bool _radioBusy = false;
   bool _initialized = false;
 
@@ -159,6 +173,9 @@ class AppState extends ChangeNotifier {
     await _pollRadio();
     _radioTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollRadio());
     _trackTimer = Timer.periodic(const Duration(seconds: 1), (_) => _logTrack());
+    // Write buffered rows to disk regularly, so a crash or dead battery during
+    // a long run loses at most a few seconds of data.
+    _flushTimer = Timer.periodic(const Duration(seconds: 10), (_) => store.flush());
   }
 
   // ------------------------------------------------------------------ GPS
@@ -310,6 +327,17 @@ class AppState extends ChangeNotifier {
         udpPacketLength: settings.udpPacketBytes,
       );
 
+  /// Waits [seconds] between repeat rounds, showing a countdown; returns early on Stop.
+  Future<void> _countdown(int seconds, String label) async {
+    for (var left = seconds; left > 0 && !_cancelSequence; left--) {
+      waitingText = '$label in $left s';
+      notifyListeners();
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    waitingText = null;
+    notifyListeners();
+  }
+
   /// Stops the running test and any remaining tests in the sequence.
   void stop() {
     _cancelSequence = true;
@@ -335,14 +363,30 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
     }
     if (settings.latencyDuringTests) await _startLatency();
+    round = 0;
+    _failStreak = 0;
     try {
-      for (var i = 0; i < configs.length; i++) {
+      while (true) {
+        round++;
+        for (var i = 0; i < configs.length; i++) {
+          if (_cancelSequence) break;
+          if (i > 0) await Future.delayed(const Duration(milliseconds: 1500));
+          if (_cancelSequence) break;
+          await _runOne(configs[i]);
+        }
+        if (_cancelSequence || !settings.repeatUntilStopped) break;
+        await store.flush();
+        if (_failStreak > 0) {
+          // Back off after errors (network change, server busy/down): 10 s, 20 s, 40 s ... max 2 min.
+          final s = min(120, 10 * (1 << min(_failStreak - 1, 4)));
+          await _countdown(s, 'Retrying');
+        } else {
+          await _countdown(settings.repeatIntervalSeconds, 'Next round');
+        }
         if (_cancelSequence) break;
-        if (i > 0) await Future.delayed(const Duration(milliseconds: 1500));
-        if (_cancelSequence) break;
-        await _runOne(configs[i]);
       }
     } finally {
+      waitingText = null;
       await _stopLatency();
       running = false;
       phase = null;
@@ -417,6 +461,8 @@ class AppState extends ChangeNotifier {
         p10Mbps: stats?.p10,
         p90Mbps: stats?.p90,
       );
+      _failStreak = 0;
+      if (settings.repeatUntilStopped) lastError = null;
     } catch (e) {
       final msg = e is IperfException
           ? e.message
@@ -431,7 +477,11 @@ class AppState extends ChangeNotifier {
         durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
         error: msg,
       );
-      _cancelSequence = true; // don't keep hammering a failing server
+      if (settings.repeatUntilStopped) {
+        _failStreak++; // keep going: retry with back-off
+      } else {
+        _cancelSequence = true; // don't keep hammering a failing server
+      }
     } finally {
       await sub.cancel();
       await client.dispose();
@@ -726,6 +776,7 @@ class AppState extends ChangeNotifier {
     _positionSub?.cancel();
     _radioTimer?.cancel();
     _trackTimer?.cancel();
+    _flushTimer?.cancel();
     _client?.stop();
     _probe?.stop();
     _latencyFlushTimer?.cancel();

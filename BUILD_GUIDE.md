@@ -141,6 +141,15 @@ Latency is measured with **TWAMP-Light**: the phone sends small timestamped UDP 
 
 Until a reflector is set, Android uses **ping** to the ping host in Settings (default 1.1.1.1). iPhones don't allow apps to ping, so on iPhone latency starts once the reflector is set. Routers often answer ping at low priority, so ping latency can read a little high; TWAMP is the reference.
 
+## Overnight and weekend runs
+
+1. **Settings → Long runs:** turn on **Repeat until stopped** and set the pause between rounds (for example 900 s = a speed test every 15 minutes). For one continuous UDP stream, set the UDP duration to **0** instead; with Repeat on, it restarts on its own after a network change or server drop (retrying after 10 s, 20 s, 40 s … up to 2 minutes).
+2. **Keep the app open with the screen on**, phone **plugged into a charger**, ideally somewhere cool. The screen can be dimmed, but don't lock it or switch apps.
+3. **Use your own iperf3 server.** Public servers often end long sessions or are busy at night.
+4. **Storage:** about 100–150 MB per day of CSV files with GPS logging, UDP samples and latency every second. Export and clear the logs (Data tab) after each weekend run.
+
+Data is written to the phone every 10 seconds, so a crash or dead battery loses only the last few seconds.
+
 ## What the app records on each platform
 
 | | Android | iPhone |

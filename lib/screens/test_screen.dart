@@ -250,7 +250,9 @@ class _LiveCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final s = state;
-    final title = s.running ? s.phase ?? 'Starting…' : 'Ready';
+    final title = !s.running
+        ? 'Ready'
+        : '${s.waitingText ?? s.phase ?? 'Starting…'}${s.settings.repeatUntilStopped && s.round > 0 ? '  ·  round ${s.round}' : ''}';
     final timing = !s.running
         ? (s.settings.host.isEmpty ? 'Set your server in Settings' : 'Server ${s.settings.host}:${s.settings.port}')
         : s.plannedSeconds > 0
