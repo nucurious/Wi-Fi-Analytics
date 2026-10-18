@@ -14,7 +14,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
-  late bool _keepOn, _logTrack;
+  late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur;
+  late bool _keepOn, _logTrack, _latOn;
   bool _loaded = false;
 
   @override
@@ -43,6 +44,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _udpPkt = TextEditingController(text: '${s.udpPacketBytes}');
     _keepOn = s.keepScreenOn;
     _logTrack = s.logGpsTrack;
+    _latOn = s.latencyDuringTests;
+    _twHost = TextEditingController(text: s.twampHost);
+    _twPort = TextEditingController(text: '${s.twampPort}');
+    _latRate = TextEditingController(text: '${s.latencyRateHz}');
+    _twPkt = TextEditingController(text: '${s.twampPacketBytes}');
+    _pingHost = TextEditingController(text: s.pingHost);
+    _latDur = TextEditingController(text: '${s.latencyDuration}');
     setState(() => _loaded = true);
   }
 
@@ -61,6 +69,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       udpPacketBytes: int.parse(_udpPkt.text),
       keepScreenOn: _keepOn,
       logGpsTrack: _logTrack,
+      latencyDuringTests: _latOn,
+      twampHost: _twHost.text.trim(),
+      twampPort: int.parse(_twPort.text),
+      latencyRateHz: int.parse(_latRate.text),
+      twampPacketBytes: int.parse(_twPkt.text),
+      pingHost: _pingHost.text.trim(),
+      latencyDuration: int.parse(_latDur.text),
     ));
     if (!mounted) return;
     FocusScope.of(context).unfocus();
@@ -105,6 +120,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _intField(_udpDur, 'Duration (seconds, 0 = run until stopped)', min: 0, max: 86400),
           _intField(_udpPar, 'Parallel streams', min: 1, max: 8),
           _intField(_udpPkt, 'Packet size (bytes)', min: 64, max: 1472, helper: '1200 avoids fragmentation on most networks'),
+          const SizedBox(height: 16),
+          _section('Latency (TWAMP)'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Measure latency during every test'),
+            subtitle: const Text('Runs alongside speed and UDP tests; writes twamp.csv'),
+            value: _latOn,
+            onChanged: (v) => setState(() => _latOn = v),
+          ),
+          TextFormField(
+            controller: _twHost,
+            decoration: const InputDecoration(
+              labelText: 'TWAMP reflector address',
+              hintText: 'Leave blank to use ping (Android)',
+              helperText: 'TWAMP-Light / STAMP reflector, e.g. twampy responder',
+            ),
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+          ),
+          _intField(_twPort, 'Reflector UDP port', min: 1, max: 65535, helper: 'TWAMP default is 862'),
+          _intField(_latRate, 'Packets per second', min: 1, max: 50, helper: 'Ping is limited to 5 per second'),
+          _intField(_twPkt, 'TWAMP packet size (bytes)', min: 41, max: 1472),
+          TextFormField(
+            controller: _pingHost,
+            decoration: const InputDecoration(
+              labelText: 'Ping host (fallback, Android only)',
+              helperText: 'Used when no reflector is set. Not available on iPhone',
+            ),
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+          ),
+          _intField(_latDur, 'Latency test duration (seconds, 0 = until stopped)', min: 0, max: 86400),
           const SizedBox(height: 16),
           _section('Logging'),
           SwitchListTile(

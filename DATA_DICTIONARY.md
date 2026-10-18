@@ -6,10 +6,11 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 |---|---|
 | `tests.csv` | Completed or failed test |
 | `samples.csv` | Second of a running test |
+| `twamp.csv` | Second of latency measurement (TWAMP or ping) during a test |
 | `gps_track.csv` | Second while the app is open (if enabled in Settings) |
 | `sites.csv` | Saved site |
 
-Rows in `samples.csv` link to `tests.csv` by `test_id`.
+Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 
 ## tests.csv
 
@@ -18,7 +19,7 @@ If you update the app and the columns change, the older log is kept as `tests_ol
 | Column | Meaning |
 |---|---|
 | test_id | Unique ID: start time + test type |
-| test_type | TCP Download, TCP Upload, UDP Download, UDP Upload |
+| test_type | TCP Download, TCP Upload, UDP Download, UDP Upload, Latency TWAMP, Latency ICMP |
 | start_utc / start_local | Test start time |
 | duration_s | Actual test length in seconds |
 | throughput_mbps | Average throughput. Uploads use the server's received count; downloads use the phone's |
@@ -34,6 +35,10 @@ If you update the app and the columns change, the older log is kept as `tests_ol
 | udp_target_mbps / udp_packet_bytes | UDP settings |
 | site_id / site_name | Site selected when the test ran |
 | device_platform | android or ios |
+| latency_target | Latency method and target measured during this test, e.g. `TWAMP 203.0.113.5:862` or `ICMP 1.1.1.1`. Blank if latency was off or unavailable |
+| rtt_avg_ms / rtt_min_ms / rtt_max_ms / rtt_median_ms | Round-trip time during the test (latency under load for throughput tests). TWAMP removes the reflector's own processing time |
+| rtt_jitter_ms | Mean difference between consecutive round-trip times (IPDV) |
+| rtt_loss_pct / rtt_packets | Latency probe packets lost / sent during the test |
 | GPS columns | Position at test start (see below) |
 | Radio columns | Radio state at test start (see below) |
 
@@ -47,6 +52,22 @@ If you update the app and the columns change, the older log is kept as `tests_ol
 | interval_mbps | Throughput during the last second |
 | site_id | Selected site |
 | GPS + Radio columns | At the time of the sample |
+
+## twamp.csv
+
+Written while a test runs, if **Measure latency during every test** is on, and during a stand-alone **Latency test**. The method is TWAMP-Light (RFC 5357 Appendix I / STAMP RFC 8762) when a reflector is set in Settings; otherwise ping on Android. Each row covers the probe packets **sent** in that second, and is written once they have all returned or timed out (2 s).
+
+| Column | Meaning |
+|---|---|
+| time_utc / time_local | The second the packets were sent |
+| test_id / test_type | Test running at that time (links to tests.csv) |
+| method / target | TWAMP or ICMP, and the reflector or ping host |
+| sent / received / lost / loss_pct | Probe packets in that second |
+| rtt_min_ms / rtt_avg_ms / rtt_max_ms / rtt_median_ms | Round-trip time |
+| jitter_ms | Mean difference between consecutive round-trip times |
+| outbound_avg_ms / inbound_avg_ms | TWAMP only: phone→reflector and reflector→phone delay. Only meaningful if both clocks are synchronized (NTP/PTP); otherwise they include the clock offset |
+| site_id | Selected site |
+| GPS + Radio columns | When the first result of that second arrived |
 
 ## gps_track.csv
 

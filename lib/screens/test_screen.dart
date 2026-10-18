@@ -90,6 +90,22 @@ class _TestScreenState extends State<TestScreen> {
               ),
             ),
             const Divider(height: 32),
+            Text('Latency test', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              '${s.settings.twampHost.isNotEmpty ? 'TWAMP to ${s.settings.twampHost}:${s.settings.twampPort}' : 'Ping to ${s.settings.pingHost} (no TWAMP reflector set)'}, '
+              '${s.settings.latencyDuration == 0 ? 'until stopped' : '${s.settings.latencyDuration}s'}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: s.runLatencyTest,
+                icon: const Icon(Icons.timer_outlined),
+                label: const Text('Start latency test', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            const Divider(height: 32),
             Text('UDP stream', style: Theme.of(context).textTheme.titleMedium),
             Text(
               '${_fmtNum(s.settings.udpMbps)} Mbps, '
@@ -253,13 +269,20 @@ class _LiveCard extends StatelessWidget {
               textBaseline: TextBaseline.alphabetic,
               children: [
                 Text(
-                  s.running ? s.currentMbps.toStringAsFixed(s.currentMbps >= 100 ? 0 : 1) : '--',
+                  !s.running
+                      ? '--'
+                      : s.latencyPhase
+                          ? (s.latencyLive?.avgMs?.toStringAsFixed(1) ?? '--')
+                          : s.currentMbps.toStringAsFixed(s.currentMbps >= 100 ? 0 : 1),
                   style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()]),
                 ),
                 const SizedBox(width: 8),
-                const Text('Mbps', style: TextStyle(fontSize: 18)),
+                Text(s.latencyPhase ? 'ms' : 'Mbps', style: const TextStyle(fontSize: 18)),
               ],
             ),
+            if (s.running && s.latencyLive != null) _latencyLine(context, s),
+            if (s.running && s.latencyProblem != null)
+              Text(s.latencyProblem!, style: TextStyle(color: cs.error, fontSize: 13)),
             if (s.running && s.plannedSeconds > 0)
               LinearProgressIndicator(value: min(1.0, s.elapsed / s.plannedSeconds)),
             const SizedBox(height: 8),
@@ -273,6 +296,19 @@ class _LiveCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _latencyLine(BuildContext context, AppState s) {
+  final l = s.latencyLive!;
+  String f(double? v) => v == null ? '--' : v.toStringAsFixed(1);
+  return Padding(
+    padding: const EdgeInsets.only(top: 2, bottom: 4),
+    child: Text(
+      'Latency ${f(l.avgMs)} ms (min ${f(l.minMs)} / max ${f(l.maxMs)})  ·  jitter ${f(l.jitterMs)} ms  ·  '
+      'loss ${l.lossPercent?.toStringAsFixed(1) ?? '--'}%  ·  ${s.latencyLabel ?? ''}',
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+    ),
+  );
 }
 
 class _Sparkline extends CustomPainter {
@@ -323,6 +359,11 @@ class _ResultTile extends StatelessWidget {
     final r = record;
     final t = r.start;
     final time = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
+    final l = r.latency;
+    final latencyText = l?.avgMs == null
+        ? null
+        : 'RTT ${l!.avgMs!.toStringAsFixed(1)} ms (min ${l.minMs!.toStringAsFixed(1)} / max ${l.maxMs!.toStringAsFixed(1)}), '
+            'jitter ${l.jitterMs?.toStringAsFixed(1) ?? '--'} ms, loss ${l.lossPercent?.toStringAsFixed(1) ?? '--'}%';
     String subtitle;
     if (r.error != null) {
       subtitle = r.error!;
@@ -333,6 +374,7 @@ class _ResultTile extends StatelessWidget {
           'min ${r.minMbps!.toStringAsFixed(1)} / max ${r.maxMbps!.toStringAsFixed(1)} / median ${r.medianMbps!.toStringAsFixed(1)} Mbps',
         if (r.jitterMs != null) 'jitter ${r.jitterMs!.toStringAsFixed(2)} ms',
         if (r.lossPercent != null) 'loss ${r.lossPercent!.toStringAsFixed(2)}% (${r.lost}/${r.total})',
+        if (latencyText != null) latencyText,
         if (r.stoppedByUser) 'stopped',
       ].join('  ·  ');
     }
@@ -342,12 +384,18 @@ class _ResultTile extends StatelessWidget {
         leading: Icon(
           r.error != null
               ? Icons.error_outline
-              : r.type.contains('Download')
-                  ? Icons.south
-                  : Icons.north,
+              : r.type.startsWith('Latency')
+                  ? Icons.timer_outlined
+                  : r.type.contains('Download')
+                      ? Icons.south
+                      : Icons.north,
           color: r.error != null ? Theme.of(context).colorScheme.error : null,
         ),
-        title: Text(r.error != null ? '${r.type} failed' : '${r.type}: ${r.mbps!.toStringAsFixed(1)} Mbps'),
+        title: Text(r.error != null
+            ? '${r.type} failed'
+            : r.mbps == null
+                ? '${r.type}: ${r.latency?.avgMs?.toStringAsFixed(1) ?? '--'} ms'
+                : '${r.type}: ${r.mbps!.toStringAsFixed(1)} Mbps'),
         subtitle: Text(subtitle),
         trailing: Text(time, style: Theme.of(context).textTheme.bodySmall),
       ),

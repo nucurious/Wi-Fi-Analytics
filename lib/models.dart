@@ -1,5 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 
+import 'latency/latency_probe.dart';
+
 /// Snapshot of radio state (cellular + Wi-Fi) at a moment in time.
 class RadioSnapshot {
   final Map<String, dynamic> raw;
@@ -128,6 +130,10 @@ class TestRecord {
   final double? p10Mbps;
   final double? p90Mbps;
 
+  /// Latency measured while this test ran (TWAMP or ping), if enabled.
+  final LatencyStats? latency;
+  final String? latencyTarget; // e.g. "TWAMP 203.0.113.5:862"
+
   TestRecord({
     required this.testId,
     required this.type,
@@ -144,7 +150,29 @@ class TestRecord {
     this.medianMbps,
     this.p10Mbps,
     this.p90Mbps,
+    this.latency,
+    this.latencyTarget,
   });
+
+  TestRecord withLatency(LatencyStats? l, String? target) => TestRecord(
+        testId: testId,
+        type: type,
+        start: start,
+        durationSeconds: durationSeconds,
+        mbps: mbps,
+        jitterMs: jitterMs,
+        lost: lost,
+        total: total,
+        error: error,
+        stoppedByUser: stoppedByUser,
+        minMbps: minMbps,
+        maxMbps: maxMbps,
+        medianMbps: medianMbps,
+        p10Mbps: p10Mbps,
+        p90Mbps: p90Mbps,
+        latency: l,
+        latencyTarget: l == null ? null : target,
+      );
 
   double? get lossPercent => (lost != null && total != null && total! > 0) ? lost! * 100 / total! : null;
 }

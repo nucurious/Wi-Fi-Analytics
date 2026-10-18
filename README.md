@@ -4,6 +4,7 @@ A field network-testing app for **iPhone and Android** (one Flutter codebase).
 
 - **On-demand speed test**: TCP download then upload against your **iperf3** server, with parallel streams.
 - **UDP stream test**: download, upload or both, at a set bitrate, for a set time or continuously until stopped. Reports jitter and packet loss.
+- **Latency (TWAMP)**: TWAMP-Light round-trip time, jitter and loss, alongside every test (latency under load) or as a stand-alone test. Falls back to ping on Android when no reflector is set.
 - **GPS capture**: position, accuracy, speed, heading and altitude logged every second while the app is open, and on every test sample.
 - **Sites**: save named sites at your current location; the selected site is tagged on every test and log row.
 - **Radio / technology info** during tests: LTE / 5G NSA / 5G SA / Wi-Fi on both platforms; full LTE and 5G NR signal metrics and Wi-Fi details on Android.

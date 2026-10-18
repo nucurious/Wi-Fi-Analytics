@@ -11,6 +11,7 @@ import '../models.dart';
 ///  - tests.csv      one row per test (summary)
 ///  - samples.csv    one row per second while a test runs
 ///  - gps_track.csv  GPS + radio every second while the app is open
+///  - twamp.csv      latency (TWAMP or ping) per second while a test runs
 ///  - sites.csv      saved sites
 class DataStore {
   late Directory _dir;
@@ -19,6 +20,7 @@ class DataStore {
   static const testsFile = 'tests.csv';
   static const samplesFile = 'samples.csv';
   static const trackFile = 'gps_track.csv';
+  static const latencyFile = 'twamp.csv';
   static const sitesFile = 'sites.csv';
   static const sitesJson = 'sites.json';
   static const settingsJson = 'settings.json';
@@ -29,6 +31,16 @@ class DataStore {
     'lost_packets', 'total_packets', 'loss_pct', 'stopped_by_user', 'error',
     'server', 'port', 'parallel_streams', 'udp_target_mbps', 'udp_packet_bytes',
     'site_id', 'site_name', 'device_platform',
+    'latency_target', 'rtt_avg_ms', 'rtt_min_ms', 'rtt_max_ms', 'rtt_median_ms', 'rtt_jitter_ms',
+    'rtt_loss_pct', 'rtt_packets',
+    ...GpsCsv.header,
+    ...RadioSnapshot.csvHeader,
+  ];
+
+  static final latencyHeader = <String>[
+    'time_utc', 'time_local', 'test_id', 'test_type', 'method', 'target',
+    'sent', 'received', 'lost', 'loss_pct', 'rtt_min_ms', 'rtt_avg_ms', 'rtt_max_ms', 'rtt_median_ms',
+    'jitter_ms', 'outbound_avg_ms', 'inbound_avg_ms', 'site_id',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
   ];
@@ -100,6 +112,7 @@ class DataStore {
   void addTest(List<Object?> row) => _append(testsFile, testsHeader, row);
   void addSample(List<Object?> row) => _append(samplesFile, samplesHeader, row);
   void addTrack(List<Object?> row) => _append(trackFile, trackHeader, row);
+  void addLatency(List<Object?> row) => _append(latencyFile, latencyHeader, row);
 
   Future<void> flush() async {
     for (final s in _sinks.values) {
@@ -156,7 +169,7 @@ class DataStore {
   Future<List<File>> exportFiles() async {
     await flush();
     final out = <File>[];
-    for (final name in [testsFile, samplesFile, trackFile, sitesFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, sitesFile]) {
       final f = file(name);
       if (await f.exists() && await f.length() > 0) out.add(f);
     }
@@ -177,7 +190,7 @@ class DataStore {
   /// Deletes test, sample and track logs. Sites are kept.
   Future<void> clearLogs() async {
     await _closeAll();
-    for (final name in [testsFile, samplesFile, trackFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile]) {
       final f = file(name);
       if (await f.exists()) await f.delete();
     }

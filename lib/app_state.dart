@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -7,6 +8,7 @@ import 'package:radio_info/radio_info.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'iperf/iperf_client.dart';
+import 'latency/latency_probe.dart';
 import 'models.dart';
 import 'services/data_store.dart';
 
@@ -22,6 +24,15 @@ class Settings {
   bool keepScreenOn;
   bool logGpsTrack;
 
+  // Latency (TWAMP-Light, or ICMP ping on Android when no reflector is set).
+  bool latencyDuringTests; // run the latency probe alongside every test
+  String twampHost; // blank = use ping fallback (Android)
+  int twampPort;
+  int latencyRateHz;
+  int twampPacketBytes;
+  String pingHost;
+  int latencyDuration; // stand-alone latency test, 0 = until stopped
+
   Settings({
     this.host = '',
     this.port = 5201,
@@ -33,6 +44,13 @@ class Settings {
     this.udpPacketBytes = 1200,
     this.keepScreenOn = true,
     this.logGpsTrack = true,
+    this.latencyDuringTests = true,
+    this.twampHost = '',
+    this.twampPort = 862,
+    this.latencyRateHz = 10,
+    this.twampPacketBytes = 64,
+    this.pingHost = '1.1.1.1',
+    this.latencyDuration = 60,
   });
 
   Map<String, dynamic> toJson() => {
@@ -46,6 +64,13 @@ class Settings {
         'udpPacketBytes': udpPacketBytes,
         'keepScreenOn': keepScreenOn,
         'logGpsTrack': logGpsTrack,
+        'latencyDuringTests': latencyDuringTests,
+        'twampHost': twampHost,
+        'twampPort': twampPort,
+        'latencyRateHz': latencyRateHz,
+        'twampPacketBytes': twampPacketBytes,
+        'pingHost': pingHost,
+        'latencyDuration': latencyDuration,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -61,6 +86,13 @@ class Settings {
       udpPacketBytes: (j['udpPacketBytes'] as num?)?.toInt() ?? d.udpPacketBytes,
       keepScreenOn: j['keepScreenOn'] as bool? ?? d.keepScreenOn,
       logGpsTrack: j['logGpsTrack'] as bool? ?? d.logGpsTrack,
+      latencyDuringTests: j['latencyDuringTests'] as bool? ?? d.latencyDuringTests,
+      twampHost: j['twampHost'] as String? ?? d.twampHost,
+      twampPort: (j['twampPort'] as num?)?.toInt() ?? d.twampPort,
+      latencyRateHz: (j['latencyRateHz'] as num?)?.toInt() ?? d.latencyRateHz,
+      twampPacketBytes: (j['twampPacketBytes'] as num?)?.toInt() ?? d.twampPacketBytes,
+      pingHost: j['pingHost'] as String? ?? d.pingHost,
+      latencyDuration: (j['latencyDuration'] as num?)?.toInt() ?? d.latencyDuration,
     );
   }
 }
@@ -87,6 +119,17 @@ class AppState extends ChangeNotifier {
   final List<double> liveSeries = [];
   final List<TestRecord> recent = [];
   String? lastError;
+
+  // Latency probe: runs for the whole test session (TWAMP-Light or ping).
+  LatencyProbe? _probe;
+  StreamSubscription<ProbeResult>? _probeSub;
+  Timer? _latencyFlushTimer;
+  String? latencyProblem; // shown as a note; never stops a throughput test
+  String? latencyLabel; // e.g. "TWAMP 203.0.113.5:862"
+  LatencyStats? latencyLive; // most recent completed second
+  bool latencyPhase = false; // true during a stand-alone latency test
+  final Map<int, _LatencySecond> _latencySeconds = {};
+  final List<_TestWindow> _windows = [];
 
   IperfClient? _client;
   bool _cancelSequence = false;
@@ -291,6 +334,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.enable();
       } catch (_) {}
     }
+    if (settings.latencyDuringTests) await _startLatency();
     try {
       for (var i = 0; i < configs.length; i++) {
         if (_cancelSequence) break;
@@ -299,6 +343,7 @@ class AppState extends ChangeNotifier {
         await _runOne(configs[i]);
       }
     } finally {
+      await _stopLatency();
       running = false;
       phase = null;
       _client = null;
@@ -325,6 +370,9 @@ class AppState extends ChangeNotifier {
     liveSeries.clear();
     final samples = <double>[];
     notifyListeners();
+
+    final window = _TestWindow(testId, cfg.label, start);
+    _windows.add(window);
 
     final client = IperfClient(cfg);
     _client = client;
@@ -389,6 +437,13 @@ class AppState extends ChangeNotifier {
       await client.dispose();
     }
 
+    // Latency under load for this test (packets still in flight settle first).
+    window.end = DateTime.now();
+    final probe = _probe;
+    if (probe != null) await Future.delayed(probe.timeout);
+    _windows.remove(window);
+    record = record.withLatency(window.acc.isEmpty ? null : window.acc.stats(), probe == null ? null : latencyLabel);
+
     recent.insert(0, record);
     if (recent.length > 50) recent.removeLast();
 
@@ -418,11 +473,243 @@ class AppState extends ChangeNotifier {
       site?.id,
       site?.name,
       Platform.operatingSystem,
+      ...latencyCsv(record),
       ...GpsCsv.values(startPos ?? position),
       ...startRadio.csvValues,
     ]);
     await store.flush();
     notifyListeners();
+  }
+
+  static List<Object?> latencyCsv(TestRecord r) {
+    final l = r.latency;
+    String? f(double? v) => v?.toStringAsFixed(2);
+    return [
+      r.latencyTarget,
+      f(l?.avgMs),
+      f(l?.minMs),
+      f(l?.maxMs),
+      f(l?.medianMs),
+      f(l?.jitterMs),
+      l?.lossPercent?.toStringAsFixed(2),
+      l?.sent,
+    ];
+  }
+
+  // ------------------------------------------------------------------ latency
+
+  /// Picks TWAMP when a reflector is set, else ping (Android only).
+  LatencyProbe? _makeProbe() {
+    final reflector = settings.twampHost.trim();
+    if (reflector.isNotEmpty) {
+      return TwampLightProbe(
+        host: reflector,
+        port: settings.twampPort,
+        rateHz: settings.latencyRateHz,
+        packetBytes: settings.twampPacketBytes,
+      );
+    }
+    if (PingProbe.supported && settings.pingHost.trim().isNotEmpty) {
+      return PingProbe(host: settings.pingHost.trim(), rateHz: min(settings.latencyRateHz, 5));
+    }
+    latencyProblem = Platform.isIOS
+        ? 'Latency not measured: iPhone needs a TWAMP reflector (Settings > Latency).'
+        : 'Latency not measured: set a TWAMP reflector or ping host in Settings.';
+    return null;
+  }
+
+  Future<void> _startLatency() async {
+    if (_probe != null) return;
+    latencyProblem = null;
+    latencyLive = null;
+    final probe = _makeProbe();
+    if (probe == null) {
+      notifyListeners();
+      return;
+    }
+    try {
+      await probe.start();
+    } catch (e) {
+      latencyProblem = 'Latency not measured: $e';
+      notifyListeners();
+      return;
+    }
+    _probe = probe;
+    latencyLabel = '${probe.method.label} ${probe.target}';
+    _probeSub = probe.results.listen(_onProbeResult, onError: (Object e) {
+      latencyProblem = e.toString();
+      notifyListeners();
+    });
+    _latencyFlushTimer = Timer.periodic(const Duration(seconds: 1), (_) => _flushLatency());
+    notifyListeners();
+  }
+
+  void _onProbeResult(ProbeResult r) {
+    final key = r.sentAt.millisecondsSinceEpoch ~/ 1000;
+    final second = _latencySeconds.putIfAbsent(key, () {
+      final w = _windowAt(r.sentAt);
+      return _LatencySecond(DateTime.fromMillisecondsSinceEpoch(key * 1000), w?.testId, w?.type, position, radio);
+    });
+    second.acc.add(r);
+    _windowAt(r.sentAt)?.acc.add(r);
+  }
+
+  _TestWindow? _windowAt(DateTime t) {
+    for (final w in _windows) {
+      if (!t.isBefore(w.start) && (w.end == null || !t.isAfter(w.end!))) return w;
+    }
+    return null;
+  }
+
+  /// Writes each finished second to twamp.csv. A second is finished once every
+  /// packet sent in it has either come back or timed out.
+  void _flushLatency({bool all = false}) {
+    final probe = _probe;
+    final lagSeconds = (probe?.timeout.inSeconds ?? 2) + 1;
+    final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - lagSeconds;
+    final keys = _latencySeconds.keys.where((k) => all || k <= cutoff).toList()..sort();
+    if (keys.isEmpty) return;
+    for (final k in keys) {
+      final s = _latencySeconds.remove(k)!;
+      final st = s.acc.stats();
+      latencyLive = st;
+      if (latencyPhase) {
+        liveSeries.add(st.avgMs ?? 0);
+        if (liveSeries.length > 600) liveSeries.removeAt(0);
+      }
+      String? f(double? v) => v?.toStringAsFixed(2);
+      store.addLatency([
+        s.time.toUtc().toIso8601String(),
+        _local(s.time),
+        s.testId,
+        s.testType,
+        probe?.method.label ?? latencyLabel?.split(' ').first,
+        probe?.target ?? latencyLabel?.split(' ').last,
+        st.sent,
+        st.received,
+        st.lost,
+        st.lossPercent?.toStringAsFixed(2),
+        f(st.minMs),
+        f(st.avgMs),
+        f(st.maxMs),
+        f(st.medianMs),
+        f(st.jitterMs),
+        f(st.outboundAvgMs),
+        f(st.inboundAvgMs),
+        activeSite?.id,
+        ...GpsCsv.values(s.position),
+        ...s.radio.csvValues,
+      ]);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _stopLatency() async {
+    final probe = _probe;
+    if (probe == null) return;
+    await probe.stop(); // waits for in-flight packets, reports the rest lost
+    await _probeSub?.cancel();
+    _probeSub = null;
+    _latencyFlushTimer?.cancel();
+    _latencyFlushTimer = null;
+    _flushLatency(all: true);
+    _probe = null;
+    await store.flush();
+  }
+
+  /// Stand-alone latency test (no throughput traffic).
+  Future<void> runLatencyTest() async {
+    if (running) return;
+    running = true;
+    latencyPhase = true;
+    _cancelSequence = false;
+    lastError = null;
+    phase = 'Latency';
+    elapsed = 0;
+    plannedSeconds = settings.latencyDuration;
+    liveSeries.clear();
+    notifyListeners();
+    if (settings.keepScreenOn) {
+      try {
+        await WakelockPlus.enable();
+      } catch (_) {}
+    }
+    final start = DateTime.now();
+    Timer? ticker;
+    try {
+      await _startLatency();
+      final probe = _probe;
+      if (probe == null) {
+        lastError = latencyProblem;
+        return;
+      }
+      final type = 'Latency ${probe.method.label}';
+      phase = type;
+      final testId = '${_compact(start)}-latency${probe.method.label.toLowerCase()}';
+      final startPos = position;
+      final startRadio = radio;
+      final site = activeSite;
+      final window = _TestWindow(testId, type, start);
+      _windows.add(window);
+      final done = Completer<void>();
+      ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        elapsed = DateTime.now().difference(start).inMilliseconds / 1000;
+        if (_cancelSequence || (plannedSeconds > 0 && elapsed >= plannedSeconds)) {
+          if (!done.isCompleted) done.complete();
+        }
+        notifyListeners();
+      });
+      await done.future;
+      ticker.cancel();
+      window.end = DateTime.now();
+      await _stopLatency();
+      _windows.remove(window);
+      final stats = window.acc.isEmpty ? null : window.acc.stats();
+      final record = TestRecord(
+        testId: testId,
+        type: type,
+        start: start,
+        durationSeconds: window.end!.difference(start).inMilliseconds / 1000,
+        stoppedByUser: _cancelSequence,
+        error: (stats == null || stats.received == 0) ? (latencyProblem ?? 'No replies') : null,
+      ).withLatency(stats, latencyLabel);
+      recent.insert(0, record);
+      if (recent.length > 50) recent.removeLast();
+      store.addTest([
+        record.testId,
+        record.type,
+        start.toUtc().toIso8601String(),
+        _local(start),
+        record.durationSeconds.toStringAsFixed(1),
+        null, null, null, null, null, null, // throughput columns
+        stats?.jitterMs?.toStringAsFixed(3),
+        stats?.lost,
+        stats?.sent,
+        stats?.lossPercent?.toStringAsFixed(3),
+        record.stoppedByUser ? 1 : 0,
+        record.error,
+        probe.target,
+        null, null, null,
+        probe is TwampLightProbe ? probe.packetBytes : null,
+        site?.id,
+        site?.name,
+        Platform.operatingSystem,
+        ...latencyCsv(record),
+        ...GpsCsv.values(startPos ?? position),
+        ...startRadio.csvValues,
+      ]);
+    } finally {
+      ticker?.cancel();
+      await _stopLatency();
+      running = false;
+      latencyPhase = false;
+      phase = null;
+      await store.flush();
+      try {
+        await WakelockPlus.disable();
+      } catch (_) {}
+      notifyListeners();
+    }
   }
 
   static String _two(int n) => n.toString().padLeft(2, '0');
@@ -439,6 +726,29 @@ class AppState extends ChangeNotifier {
     _radioTimer?.cancel();
     _trackTimer?.cancel();
     _client?.stop();
+    _probe?.stop();
+    _latencyFlushTimer?.cancel();
     super.dispose();
   }
+}
+
+/// Probe results for one wall-clock second, with GPS/radio from that moment.
+class _LatencySecond {
+  final DateTime time;
+  final String? testId;
+  final String? testType;
+  final Position? position;
+  final RadioSnapshot radio;
+  final LatencyAccumulator acc = LatencyAccumulator();
+  _LatencySecond(this.time, this.testId, this.testType, this.position, this.radio);
+}
+
+/// Time span of one test, used to attach latency-under-load to that test.
+class _TestWindow {
+  final String testId;
+  final String type;
+  final DateTime start;
+  DateTime? end;
+  final LatencyAccumulator acc = LatencyAccumulator();
+  _TestWindow(this.testId, this.type, this.start);
 }

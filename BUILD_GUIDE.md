@@ -130,6 +130,17 @@ The phone connects to your server on the port in Settings (default 5201):
 
 ---
 
+## Your TWAMP reflector (for latency)
+
+Latency is measured with **TWAMP-Light**: the phone sends small timestamped UDP packets to a reflector, which sends them straight back. There are no public reflectors, so run your own, ideally on the same server as iperf3:
+
+1. Install Python 3.11 or newer, then get Nokia's free reflector: `pip install git+https://github.com/nokia/twampy` (or download the repo and run it from its `src` folder).
+2. Start it: `twampy responder :862`
+3. Open **UDP port 862** in the server's firewall / cloud security group.
+4. In the app, **Settings → Latency (TWAMP)**: enter the server address and port 862, then **Save settings**.
+
+Until a reflector is set, Android uses **ping** to the ping host in Settings (default 1.1.1.1). iPhones don't allow apps to ping, so on iPhone latency starts once the reflector is set. Routers often answer ping at low priority, so ping latency can read a little high; TWAMP is the reference.
+
 ## What the app records on each platform
 
 | | Android | iPhone |

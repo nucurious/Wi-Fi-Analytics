@@ -31,7 +31,7 @@ class _DataScreenState extends State<DataScreen> {
       return;
     }
     final counts = <String, int>{};
-    for (final f in [DataStore.testsFile, DataStore.samplesFile, DataStore.trackFile, DataStore.sitesFile]) {
+    for (final f in [DataStore.testsFile, DataStore.samplesFile, DataStore.latencyFile, DataStore.trackFile, DataStore.sitesFile]) {
       counts[f] = await store.rowCount(f);
     }
     if (mounted) setState(() => _counts = counts);
@@ -64,7 +64,7 @@ class _DataScreenState extends State<DataScreen> {
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Clear logged data?'),
-        content: const Text('Deletes tests.csv, samples.csv and gps_track.csv from this phone. '
+        content: const Text('Deletes tests.csv, samples.csv, twamp.csv and gps_track.csv from this phone. '
             'Saved sites are kept. Export first if you need the data.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
@@ -108,6 +108,8 @@ class _DataScreenState extends State<DataScreen> {
                 _fileTile(DataStore.testsFile, 'One row per test: throughput, jitter, loss, GPS, site, radio'),
                 const Divider(height: 1),
                 _fileTile(DataStore.samplesFile, 'Every second during a test: Mbps, GPS, radio'),
+                const Divider(height: 1),
+                _fileTile(DataStore.latencyFile, 'Every second during a test: latency, jitter, loss (TWAMP or ping), GPS, radio'),
                 const Divider(height: 1),
                 _fileTile(DataStore.trackFile, 'Every second while the app is open: GPS + radio'),
                 const Divider(height: 1),
