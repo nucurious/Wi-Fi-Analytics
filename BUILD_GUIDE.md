@@ -148,6 +148,17 @@ Until a reflector is set, Android uses **ping** to the ping host in Settings (de
 
 Every row records the `profile`, and `tests.csv` records the `trigger` (for example `Joined Wi-Fi SpectrumWiFi a4:2b:…`).
 
+## Emailing results automatically
+
+When a session stops (Stop on a drive/walk/repeat run, or the end of a single test), the app emails **that session's rows** to the address in **Settings → Email results** (default `rockfordtest7@gmail.com`).
+
+1. Use a Gmail account just for sending. Turn on **2-Step Verification**, then create an **App password** (Google Account → Security → App passwords).
+2. In the app, **Settings → Email results**: enter the sender Gmail address and the 16-character app password, check the IMEI last 4 digits (dial `*#06#`; Android 10+ and iPhone don't let apps read it), then **Save settings**.
+
+Attachments are gzip-compressed CSVs named `<Make>_<Model>_<IMEI last 4>_<Profile>_<date-time>_<file>.csv.gz`, for example `samsung_SM-S938U_1234_Walk_20261018-121500_tests.csv.gz`. Large sessions are split across several emails (each under Gmail's limit). With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
+
+The app password is stored on the phone in the app's private storage. Use a sending account that holds nothing else.
+
 ## Overnight and weekend runs
 
 1. **Settings → Long runs:** turn on **Repeat until stopped** and set the pause between rounds (for example 900 s = a speed test every 15 minutes). For one continuous UDP stream, set the UDP duration to **0** instead; with Repeat on, it restarts on its own after a network change or server drop (retrying after 10 s, 20 s, 40 s … up to 2 minutes).

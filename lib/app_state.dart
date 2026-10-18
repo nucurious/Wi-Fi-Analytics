@@ -11,6 +11,7 @@ import 'iperf/iperf_client.dart';
 import 'latency/latency_probe.dart';
 import 'models.dart';
 import 'services/data_store.dart';
+import 'services/session_mailer.dart';
 
 class Settings {
   String host;
@@ -43,6 +44,13 @@ class Settings {
   int walkMinGapSeconds; // minimum time between two walk speed tests
   bool walkTriggerOnRoam; // also test when the phone moves to a new AP (Android)
 
+  // Email results when a session stops (Gmail SMTP)
+  bool emailResults;
+  String emailTo;
+  String smtpUser; // sender Gmail address
+  String smtpPassword; // Gmail app password (16 characters)
+  String imeiLast4; // used in file names; auto-filled where Android allows
+
   Settings({
     this.host = '',
     this.port = 5201,
@@ -67,6 +75,11 @@ class Settings {
     this.walkSettleSeconds = 5,
     this.walkMinGapSeconds = 60,
     this.walkTriggerOnRoam = false,
+    this.emailResults = true,
+    this.emailTo = 'rockfordtest7@gmail.com',
+    this.smtpUser = '',
+    this.smtpPassword = '',
+    this.imeiLast4 = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -93,6 +106,11 @@ class Settings {
         'walkSettleSeconds': walkSettleSeconds,
         'walkMinGapSeconds': walkMinGapSeconds,
         'walkTriggerOnRoam': walkTriggerOnRoam,
+        'emailResults': emailResults,
+        'emailTo': emailTo,
+        'smtpUser': smtpUser,
+        'smtpPassword': smtpPassword,
+        'imeiLast4': imeiLast4,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -121,6 +139,11 @@ class Settings {
       walkSettleSeconds: (j['walkSettleSeconds'] as num?)?.toInt() ?? d.walkSettleSeconds,
       walkMinGapSeconds: (j['walkMinGapSeconds'] as num?)?.toInt() ?? d.walkMinGapSeconds,
       walkTriggerOnRoam: j['walkTriggerOnRoam'] as bool? ?? d.walkTriggerOnRoam,
+      emailResults: j['emailResults'] as bool? ?? d.emailResults,
+      emailTo: j['emailTo'] as String? ?? d.emailTo,
+      smtpUser: j['smtpUser'] as String? ?? d.smtpUser,
+      smtpPassword: j['smtpPassword'] as String? ?? d.smtpPassword,
+      imeiLast4: j['imeiLast4'] as String? ?? d.imeiLast4,
     );
   }
 }
@@ -136,6 +159,12 @@ extension TestProfileLabel on TestProfile {
 
 class AppState extends ChangeNotifier {
   final DataStore store = DataStore();
+  late final SessionMailer mailer = SessionMailer(store);
+  Map<String, dynamic> device = {}; // make, model, osVersion, imeiLast4 (if readable)
+  DateTime? _sessionStart;
+  Map<String, int>? _sessionOffsets;
+  TestProfile _sessionProfile = TestProfile.manual;
+  Timer? _emailTimer;
   Settings settings = Settings();
 
   List<Site> sites = [];
@@ -205,6 +234,18 @@ class AppState extends ChangeNotifier {
     // Write buffered rows to disk regularly, so a crash or dead battery during
     // a long run loses at most a few seconds of data.
     _flushTimer = Timer.periodic(const Duration(seconds: 10), (_) => store.flush());
+
+    device = await RadioInfo.deviceInfo();
+    final imei = device['imeiLast4'] as String?;
+    if (imei != null && settings.imeiLast4.isEmpty) {
+      settings.imeiLast4 = imei;
+      await _saveSettings();
+    }
+    // Send anything left from sessions that ended without signal.
+    unawaited(sendPendingEmail());
+    _emailTimer = Timer.periodic(const Duration(minutes: 10), (_) {
+      if (!running && mailer.pendingCount() > 0) sendPendingEmail();
+    });
   }
 
   // ------------------------------------------------------------------ GPS
@@ -401,6 +442,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.enable();
       } catch (_) {}
     }
+    await _beginSession(p);
     if (settings.latencyDuringTests || p != TestProfile.manual) await _startLatency();
     round = 0;
     _failStreak = 0;
@@ -440,6 +482,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.disable();
       } catch (_) {}
       notifyListeners();
+      await _endSession();
     }
   }
 
@@ -716,6 +759,86 @@ class AppState extends ChangeNotifier {
     await store.flush();
   }
 
+  // ------------------------------------------------------------------ email
+
+  /// "Samsung_SM-S938U_1234": make, model and last 4 IMEI digits, file-name safe.
+  String get devicePrefix {
+    String clean(Object? v) => (v ?? '').toString().trim().replaceAll(RegExp(r'[^A-Za-z0-9.-]+'), '-');
+    final make = clean(device['make']);
+    final model = clean(device['model']);
+    final imei = clean(settings.imeiLast4);
+    return [
+      make.isEmpty ? 'Phone' : make,
+      if (model.isNotEmpty) model,
+      imei.isEmpty ? 'IMEI-unknown' : imei,
+    ].join('_');
+  }
+
+  String? get emailStatus => mailer.lastStatus;
+  int get emailPending => mailer.pendingCount();
+
+  Future<void> _beginSession(TestProfile p) async {
+    _sessionStart = DateTime.now();
+    _sessionProfile = p;
+    _sessionOffsets = await mailer.markStart();
+  }
+
+  Future<void> _endSession() async {
+    final start = _sessionStart;
+    final offsets = _sessionOffsets;
+    _sessionStart = null;
+    _sessionOffsets = null;
+    if (start == null || offsets == null || !settings.emailResults) return;
+    final end = DateTime.now();
+    final prefix = '${devicePrefix}_${_sessionProfile.label}_${_compact(start)}';
+    final tests = recent.where((r) => !r.start.isBefore(start)).toList().reversed.toList();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final dur = end.difference(start);
+    final b = StringBuffer()
+      ..writeln('WiFi Analytics results')
+      ..writeln()
+      ..writeln('Device:   ${device['make'] ?? ''} ${device['model'] ?? ''}  (IMEI last 4: ${settings.imeiLast4.isEmpty ? 'not set' : settings.imeiLast4})  ${device['osVersion'] ?? ''}')
+      ..writeln('Profile:  ${_sessionProfile.label}')
+      ..writeln('Start:    ${_local(start)}')
+      ..writeln('End:      ${_local(end)}  (${dur.inHours}h ${two(dur.inMinutes % 60)}m ${two(dur.inSeconds % 60)}s)')
+      ..writeln('Site:     ${activeSite == null ? '-' : '${activeSite!.id} ${activeSite!.name}'}')
+      ..writeln('Server:   ${settings.host}:${settings.port}')
+      ..writeln('Latency:  ${latencyLabel ?? 'off'}')
+      ..writeln()
+      ..writeln('Tests (${tests.length}${tests.length >= 50 ? ', last 50 shown' : ''}):');
+    for (final r in tests) {
+      final what = r.error != null
+          ? 'FAILED: ${r.error}'
+          : r.mbps != null
+              ? '${r.mbps!.toStringAsFixed(1)} Mbps (min ${r.minMbps?.toStringAsFixed(1) ?? '-'} / max ${r.maxMbps?.toStringAsFixed(1) ?? '-'})'
+              : '';
+      final lat = r.latency?.avgMs == null ? '' : ', RTT ${r.latency!.avgMs!.toStringAsFixed(1)} ms';
+      b.writeln('  ${_local(r.start)}  ${r.type}  $what$lat${r.apInfo != null ? '  [${r.apInfo}]' : ''}');
+    }
+    b
+      ..writeln()
+      ..writeln('Attached: this session\'s rows from tests, samples, twamp and gps_track, as gzip-compressed CSV')
+      ..writeln('(.csv.gz: open with 7-Zip on Windows, or double-click on a Mac).');
+    try {
+      final queued = await mailer.queueSession(
+        offsets: offsets,
+        filePrefix: prefix,
+        subject: 'WiFi Analytics: $prefix',
+        body: b.toString(),
+      );
+      if (queued) unawaited(sendPendingEmail());
+    } catch (e) {
+      mailer.lastStatus = 'Could not prepare email: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> sendPendingEmail() async {
+    if (mailer.pendingCount() == 0) return;
+    await mailer.sendOutbox(to: settings.emailTo, user: settings.smtpUser, appPassword: settings.smtpPassword);
+    notifyListeners();
+  }
+
   /// Walk profile: latency runs the whole time; a TCP speed test starts
   /// automatically each time the phone joins Wi-Fi (and, if enabled, when it
   /// moves to a new AP). Runs until Stop.
@@ -741,6 +864,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.enable();
       } catch (_) {}
     }
+    await _beginSession(TestProfile.walk);
     try {
       await _startLatency();
       String? lastConn = radio.connection;
@@ -811,6 +935,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.disable();
       } catch (_) {}
       notifyListeners();
+      await _endSession();
     }
   }
 
@@ -832,6 +957,7 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
     }
     final start = DateTime.now();
+    await _beginSession(TestProfile.manual);
     Timer? ticker;
     try {
       await _startLatency();
@@ -908,6 +1034,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.disable();
       } catch (_) {}
       notifyListeners();
+      await _endSession();
     }
   }
 
@@ -925,6 +1052,7 @@ class AppState extends ChangeNotifier {
     _radioTimer?.cancel();
     _trackTimer?.cancel();
     _flushTimer?.cancel();
+    _emailTimer?.cancel();
     _client?.stop();
     _probe?.stop();
     _latencyFlushTimer?.cancel();

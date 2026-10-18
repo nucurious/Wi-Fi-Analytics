@@ -16,6 +16,16 @@ class RadioInfo {
     }
   }
 
+  /// Make, model, OS version and (Android 9 and older only) the last 4 IMEI digits.
+  static Future<Map<String, dynamic>> deviceInfo() async {
+    try {
+      final m = await _channel.invokeMapMethod<String, dynamic>('getDeviceInfo');
+      return m ?? <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   /// Android: asks for READ_PHONE_STATE (needed for network type / 5G NSA).
   static Future<bool> requestPhonePermission() async {
     try {

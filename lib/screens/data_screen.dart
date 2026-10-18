@@ -40,16 +40,29 @@ class _DataScreenState extends State<DataScreen> {
   Future<void> _export(BuildContext buttonContext) async {
     setState(() => _busy = true);
     try {
-      final files = await widget.state.store.exportFiles();
+      final prefix = widget.state.devicePrefix;
+      final files = await widget.state.store.exportCompressed(prefix);
       if (files.isEmpty) {
         _snack('Nothing to export yet. Run a test first.');
         return;
       }
+      var total = 0;
+      for (final f in files) {
+        total += await f.length();
+      }
+      final mb = total / 1048576;
+      if (mb > 20) {
+        _snack('Export is ${mb.toStringAsFixed(0)} MB, too big for most email. Share to Drive or Files, '
+            'or clear the logs after exporting.');
+      }
       final box = buttonContext.findRenderObject() as RenderBox?;
       await SharePlus.instance.share(ShareParams(
-        files: files.map((f) => XFile(f.path, mimeType: 'text/csv')).toList(),
-        subject: 'WiFi Analytics export',
-        text: 'WiFi Analytics test data (CSV)',
+        files: files
+            .map((f) => XFile(f.path, mimeType: f.path.endsWith('.gz') ? 'application/gzip' : 'text/csv'))
+            .toList(),
+        subject: 'WiFi Analytics export: $prefix',
+        text: 'WiFi Analytics test data from $prefix (${mb.toStringAsFixed(1)} MB, gzip-compressed CSV: '
+            'open with 7-Zip on Windows or double-click on a Mac)',
         sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
       ));
     } catch (e) {
@@ -117,6 +130,33 @@ class _DataScreenState extends State<DataScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          ListenableBuilder(
+            listenable: widget.state,
+            builder: (context, _) {
+              final s = widget.state;
+              final pending = s.emailPending;
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.email_outlined),
+                  title: Text(s.settings.emailResults ? 'Email to ${s.settings.emailTo}' : 'Emailing results is off'),
+                  subtitle: Text([
+                    if (pending > 0) '$pending session${pending == 1 ? '' : 's'} waiting to send',
+                    s.emailStatus ?? (pending == 0 ? 'Nothing waiting' : ''),
+                  ].where((t) => t.isNotEmpty).join('\n')),
+                  trailing: pending > 0
+                      ? TextButton(
+                          onPressed: () async {
+                            await s.sendPendingEmail();
+                            _refresh();
+                          },
+                          child: const Text('Send now'),
+                        )
+                      : null,
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 16),
           Builder(
             builder: (buttonContext) => SizedBox(
@@ -124,7 +164,7 @@ class _DataScreenState extends State<DataScreen> {
               child: FilledButton.icon(
                 onPressed: _busy ? null : () => _export(buttonContext),
                 icon: const Icon(Icons.ios_share),
-                label: const Text('Export CSV files', style: TextStyle(fontSize: 16)),
+                label: const Text('Export CSV files (compressed)', style: TextStyle(fontSize: 16)),
               ),
             ),
           ),

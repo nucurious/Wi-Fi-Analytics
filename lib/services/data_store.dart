@@ -165,6 +165,28 @@ class DataStore {
   Future<void> saveSettings(Map<String, dynamic> settings) =>
       file(settingsJson).writeAsString(jsonEncode(settings));
 
+  /// Gzip-compressed copies of the logs for sharing, named
+  /// `<prefix>_<file>.csv.gz` (CSV shrinks about 10x, so a day of logs fits
+  /// under email size limits). Sites stay plain CSV.
+  Future<List<File>> exportCompressed(String prefix) async {
+    final files = await exportFiles();
+    final out = Directory('${_dir.path}/export');
+    if (await out.exists()) await out.delete(recursive: true);
+    await out.create(recursive: true);
+    final result = <File>[];
+    for (final f in files) {
+      final name = f.uri.pathSegments.last;
+      if (name == sitesFile) {
+        result.add(await f.copy('${out.path}/${prefix}_$name'));
+        continue;
+      }
+      final gz = File('${out.path}/${prefix}_$name.gz');
+      await f.openRead().transform(gzip.encoder).pipe(gz.openWrite());
+      result.add(gz);
+    }
+    return result;
+  }
+
   /// CSV files that currently exist (for sharing).
   Future<List<File>> exportFiles() async {
     await flush();

@@ -15,7 +15,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
-  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam;
+  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email;
+  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei;
+  bool _showPass = false;
   late String _driveDir;
   bool _loaded = false;
 
@@ -58,6 +60,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _walkSettle = TextEditingController(text: '${s.walkSettleSeconds}');
     _walkGap = TextEditingController(text: '${s.walkMinGapSeconds}');
     _walkRoam = s.walkTriggerOnRoam;
+    _email = s.emailResults;
+    _emailTo = TextEditingController(text: s.emailTo);
+    _smtpUser = TextEditingController(text: s.smtpUser);
+    _smtpPass = TextEditingController(text: s.smtpPassword);
+    _imei = TextEditingController(text: s.imeiLast4);
     setState(() => _loaded = true);
   }
 
@@ -89,6 +96,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       walkSettleSeconds: int.parse(_walkSettle.text),
       walkMinGapSeconds: int.parse(_walkGap.text),
       walkTriggerOnRoam: _walkRoam,
+      emailResults: _email,
+      emailTo: _emailTo.text.trim(),
+      smtpUser: _smtpUser.text.trim(),
+      smtpPassword: _smtpPass.text.trim(),
+      imeiLast4: _imei.text.trim(),
     ));
     if (!mounted) return;
     FocusScope.of(context).unfocus();
@@ -188,6 +200,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Roams between APs on the same Wi-Fi network (Android only)'),
             value: _walkRoam,
             onChanged: (v) => setState(() => _walkRoam = v),
+          ),
+          const SizedBox(height: 16),
+          _section('Email results'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Email results when a session stops'),
+            subtitle: const Text('Only that session\'s rows, gzip-compressed. Queued and retried if there is no signal'),
+            value: _email,
+            onChanged: (v) => setState(() => _email = v),
+          ),
+          TextFormField(
+            controller: _emailTo,
+            decoration: const InputDecoration(labelText: 'Send to'),
+            keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+          ),
+          TextFormField(
+            controller: _smtpUser,
+            decoration: const InputDecoration(labelText: 'Sender Gmail address', hintText: 'a Gmail account used only for sending'),
+            keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+          ),
+          TextFormField(
+            controller: _smtpPass,
+            obscureText: !_showPass,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              labelText: 'Gmail app password',
+              helperText: 'Google Account > Security > App passwords (needs 2-Step Verification). Stored on this phone',
+              helperMaxLines: 2,
+              suffixIcon: IconButton(
+                icon: Icon(_showPass ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _showPass = !_showPass),
+              ),
+            ),
+          ),
+          TextFormField(
+            controller: _imei,
+            decoration: InputDecoration(
+              labelText: 'IMEI last 4 digits (for file names)',
+              helperText: 'Dial *#06# to see the IMEI. File names: ${widget.state.devicePrefix}_<profile>_<date-time>',
+              helperMaxLines: 2,
+            ),
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)],
           ),
           const SizedBox(height: 16),
           _section('Long runs (overnight / weekend)'),

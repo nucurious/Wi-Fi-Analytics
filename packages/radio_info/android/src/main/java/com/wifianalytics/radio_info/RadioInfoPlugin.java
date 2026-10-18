@@ -1,6 +1,7 @@
 package com.wifianalytics.radio_info;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -112,6 +113,9 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             case "getRadioInfo":
                 collect(result);
                 break;
+            case "getDeviceInfo":
+                result.success(deviceInfo());
+                break;
             case "hasPhonePermission":
                 result.success(hasPermission(Manifest.permission.READ_PHONE_STATE));
                 break;
@@ -121,6 +125,28 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             default:
                 result.notImplemented();
         }
+    }
+
+    /** Make, model, OS and (where Android still allows it) the last 4 digits of the IMEI. */
+    @SuppressLint({"MissingPermission", "HardwareIds"})
+    @SuppressWarnings("deprecation")
+    private Map<String, Object> deviceInfo() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("make", Build.MANUFACTURER);
+        m.put("model", Build.MODEL);
+        m.put("osVersion", "Android " + Build.VERSION.RELEASE);
+        // Android 10+ only lets system apps read the IMEI; on older versions
+        // READ_PHONE_STATE is enough. Only the last 4 digits are kept.
+        try {
+            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+            if (tm != null && hasPermission(Manifest.permission.READ_PHONE_STATE)) {
+                String imei = Build.VERSION.SDK_INT >= 26 ? tm.getImei() : tm.getDeviceId();
+                if (imei != null && imei.length() >= 4) m.put("imeiLast4", imei.substring(imei.length() - 4));
+            }
+        } catch (Exception ignored) {
+            // SecurityException on Android 10+: the tester enters it in Settings.
+        }
+        return m;
     }
 
     private boolean hasPermission(String permission) {
