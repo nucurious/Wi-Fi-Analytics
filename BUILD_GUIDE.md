@@ -121,6 +121,15 @@ TestFlight builds last 90 days. To refresh, just start a new iPhone build.
 
 ## Your iperf3 server checklist
 
+**Lab server:** `96.37.191.0`, port `5201` (Dell OptiPlex 7070 on the lab's 1 Gbps Spectrum Business line). This is the app's default server address on a new install; existing installs keep whatever is in Settings. To add more iperf3 ports (so several testers can run at once) and the TWAMP reflector to that PC, run `server/setup-windows-test-server.ps1` on it as administrator.
+
+Quick reachability check from a Windows PC **outside** the lab network:
+`Test-NetConnection 96.37.191.0 -Port 5201` → `TcpTestSucceeded : True`. Testing from inside the lab can fail even when the server is fine (many routers don't loop traffic back to their own public IP); the definitive test is the app on a phone using **cellular**.
+
+Things that limit results from the lab server:
+- The line's **upload** speed caps every phone **download** test (the server sends). Check it with a speed test from the lab.
+- 1 Gbps line → tests top out around 940 Mbps. For faster Wi-Fi 7 tests, test against the server's LAN address from the lab Wi-Fi.
+
 The phone connects to your server on the port in Settings (default 5201):
 
 - Start the server with: `iperf3 -s -p 5201`

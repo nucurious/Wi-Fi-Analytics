@@ -53,7 +53,7 @@ class Settings {
   String imeiLast4; // used in file names; auto-filled where Android allows
 
   Settings({
-    this.host = '',
+    this.host = '96.37.191.0', // lab iperf3 server (Spectrum Business, 1 Gbps)
     this.port = 5201,
     this.tcpDuration = 10,
     this.tcpParallel = 4,
