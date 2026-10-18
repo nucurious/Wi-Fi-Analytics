@@ -14,8 +14,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
-  late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap;
-  late bool _keepOn, _logTrack, _latOn, _repeat;
+  late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
+  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam;
+  late String _driveDir;
   bool _loaded = false;
 
   @override
@@ -53,6 +54,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _latDur = TextEditingController(text: '${s.latencyDuration}');
     _repeat = s.repeatUntilStopped;
     _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
+    _driveDir = s.driveUdpDirection;
+    _walkSettle = TextEditingController(text: '${s.walkSettleSeconds}');
+    _walkGap = TextEditingController(text: '${s.walkMinGapSeconds}');
+    _walkRoam = s.walkTriggerOnRoam;
     setState(() => _loaded = true);
   }
 
@@ -80,6 +85,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       latencyDuration: int.parse(_latDur.text),
       repeatUntilStopped: _repeat,
       repeatIntervalSeconds: int.parse(_repeatGap.text),
+      driveUdpDirection: _driveDir,
+      walkSettleSeconds: int.parse(_walkSettle.text),
+      walkMinGapSeconds: int.parse(_walkGap.text),
+      walkTriggerOnRoam: _walkRoam,
     ));
     if (!mounted) return;
     FocusScope.of(context).unfocus();
@@ -156,6 +165,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             autocorrect: false,
           ),
           _intField(_latDur, 'Latency test duration (seconds, 0 = until stopped)', min: 0, max: 86400),
+          const SizedBox(height: 16),
+          _section('Drive profile'),
+          const Text('Latency + one continuous UDP stream (bitrate and packet size from UDP stream above).'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'download', label: Text('UDP download'), icon: Icon(Icons.south)),
+              ButtonSegment(value: 'upload', label: Text('UDP upload'), icon: Icon(Icons.north)),
+            ],
+            selected: {_driveDir},
+            onSelectionChanged: (v) => setState(() => _driveDir = v.first),
+          ),
+          const SizedBox(height: 16),
+          _section('Walk profile'),
+          _intField(_walkSettle, 'Wait after joining Wi-Fi (seconds)', min: 0, max: 120,
+              helper: 'Lets Wi-Fi finish connecting before the speed test'),
+          _intField(_walkGap, 'Minimum time between speed tests (seconds)', min: 0, max: 3600),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Also test when moving to a new AP'),
+            subtitle: const Text('Roams between APs on the same Wi-Fi network (Android only)'),
+            value: _walkRoam,
+            onChanged: (v) => setState(() => _walkRoam = v),
+          ),
           const SizedBox(height: 16),
           _section('Long runs (overnight / weekend)'),
           SwitchListTile(

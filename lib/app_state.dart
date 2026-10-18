@@ -37,6 +37,12 @@ class Settings {
   bool repeatUntilStopped; // repeat the test, and restart after errors
   int repeatIntervalSeconds; // pause between rounds
 
+  // Traffic profiles
+  String driveUdpDirection; // 'download' | 'upload'
+  int walkSettleSeconds; // wait after joining Wi-Fi before testing
+  int walkMinGapSeconds; // minimum time between two walk speed tests
+  bool walkTriggerOnRoam; // also test when the phone moves to a new AP (Android)
+
   Settings({
     this.host = '',
     this.port = 5201,
@@ -57,6 +63,10 @@ class Settings {
     this.latencyDuration = 60,
     this.repeatUntilStopped = false,
     this.repeatIntervalSeconds = 60,
+    this.driveUdpDirection = 'download',
+    this.walkSettleSeconds = 5,
+    this.walkMinGapSeconds = 60,
+    this.walkTriggerOnRoam = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -79,6 +89,10 @@ class Settings {
         'latencyDuration': latencyDuration,
         'repeatUntilStopped': repeatUntilStopped,
         'repeatIntervalSeconds': repeatIntervalSeconds,
+        'driveUdpDirection': driveUdpDirection,
+        'walkSettleSeconds': walkSettleSeconds,
+        'walkMinGapSeconds': walkMinGapSeconds,
+        'walkTriggerOnRoam': walkTriggerOnRoam,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -103,11 +117,22 @@ class Settings {
       latencyDuration: (j['latencyDuration'] as num?)?.toInt() ?? d.latencyDuration,
       repeatUntilStopped: j['repeatUntilStopped'] as bool? ?? d.repeatUntilStopped,
       repeatIntervalSeconds: (j['repeatIntervalSeconds'] as num?)?.toInt() ?? d.repeatIntervalSeconds,
+      driveUdpDirection: j['driveUdpDirection'] as String? ?? d.driveUdpDirection,
+      walkSettleSeconds: (j['walkSettleSeconds'] as num?)?.toInt() ?? d.walkSettleSeconds,
+      walkMinGapSeconds: (j['walkMinGapSeconds'] as num?)?.toInt() ?? d.walkMinGapSeconds,
+      walkTriggerOnRoam: j['walkTriggerOnRoam'] as bool? ?? d.walkTriggerOnRoam,
     );
   }
 }
 
 enum UdpDirection { download, upload, both }
+
+/// How a test session was started.
+enum TestProfile { manual, drive, walk }
+
+extension TestProfileLabel on TestProfile {
+  String get label => switch (this) { TestProfile.manual => 'Manual', TestProfile.drive => 'Drive', TestProfile.walk => 'Walk' };
+}
 
 class AppState extends ChangeNotifier {
   final DataStore store = DataStore();
@@ -129,6 +154,10 @@ class AppState extends ChangeNotifier {
   int round = 0; // repeat mode: current round (1-based)
   String? waitingText; // repeat mode: countdown between rounds
   int _failStreak = 0;
+  TestProfile profile = TestProfile.manual; // profile of the running session
+  bool _keepGoing = false; // repeat / drive / walk: errors don't end the session
+  String _trigger = 'Manual'; // why the current test started (tests.csv)
+  int walkTests = 0; // speed tests triggered in this walk session
   final List<double> liveSeries = [];
   final List<TestRecord> recent = [];
   String? lastError;
@@ -237,6 +266,7 @@ class AppState extends ChangeNotifier {
       _local(now),
       activeSite?.id,
       running ? 1 : 0,
+      running ? profile.label : null,
       ...GpsCsv.values(position),
       ...radio.csvValues,
     ]);
@@ -296,6 +326,12 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  /// Drive profile: TWAMP (or ping) + one continuous UDP stream until Stop.
+  /// Restarts within seconds after a network change or server drop.
+  Future<void> startDriveTest() => _runSequence([
+        _udpConfig(settings.driveUdpDirection == 'upload' ? IperfDirection.upload : IperfDirection.download, duration: 0),
+      ], p: TestProfile.drive);
+
   /// TCP download then upload.
   Future<void> runSpeedTest() => _runSequence([
         _tcpConfig(IperfDirection.download),
@@ -316,12 +352,12 @@ class AppState extends ChangeNotifier {
         parallel: settings.tcpParallel,
       );
 
-  IperfConfig _udpConfig(IperfDirection d) => IperfConfig(
+  IperfConfig _udpConfig(IperfDirection d, {int? duration}) => IperfConfig(
         host: settings.host.trim(),
         port: settings.port,
         protocol: IperfProtocol.udp,
         direction: d,
-        durationSeconds: settings.udpDuration,
+        durationSeconds: duration ?? settings.udpDuration,
         parallel: settings.udpParallel,
         udpBandwidthBps: (settings.udpMbps * 1e6).round(),
         udpPacketLength: settings.udpPacketBytes,
@@ -345,7 +381,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _runSequence(List<IperfConfig> configs) async {
+  Future<void> _runSequence(List<IperfConfig> configs, {TestProfile p = TestProfile.manual}) async {
     if (running) return;
     final problem = validateServer();
     if (problem != null) {
@@ -354,6 +390,9 @@ class AppState extends ChangeNotifier {
       return;
     }
     running = true;
+    profile = p;
+    _keepGoing = p == TestProfile.drive || settings.repeatUntilStopped;
+    _trigger = p == TestProfile.drive ? 'Drive profile' : (settings.repeatUntilStopped ? 'Repeat' : 'Manual');
     _cancelSequence = false;
     lastError = null;
     notifyListeners();
@@ -362,7 +401,7 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.enable();
       } catch (_) {}
     }
-    if (settings.latencyDuringTests) await _startLatency();
+    if (settings.latencyDuringTests || p != TestProfile.manual) await _startLatency();
     round = 0;
     _failStreak = 0;
     try {
@@ -374,14 +413,17 @@ class AppState extends ChangeNotifier {
           if (_cancelSequence) break;
           await _runOne(configs[i]);
         }
-        if (_cancelSequence || !settings.repeatUntilStopped) break;
+        if (_cancelSequence || !_keepGoing) break;
         await store.flush();
         if (_failStreak > 0) {
           // Back off after errors (network change, server busy/down): 10 s, 20 s, 40 s ... max 2 min.
-          final s = min(120, 10 * (1 << min(_failStreak - 1, 4)));
+          // On a drive, retry fast (3, 6, 12 ... max 15 s) so little of the route is missed.
+          final s = p == TestProfile.drive
+              ? min(15, 3 * (1 << min(_failStreak - 1, 3)))
+              : min(120, 10 * (1 << min(_failStreak - 1, 4)));
           await _countdown(s, 'Retrying');
         } else {
-          await _countdown(settings.repeatIntervalSeconds, 'Next round');
+          await _countdown(p == TestProfile.drive ? 1 : settings.repeatIntervalSeconds, 'Next round');
         }
         if (_cancelSequence) break;
       }
@@ -389,6 +431,8 @@ class AppState extends ChangeNotifier {
       waitingText = null;
       await _stopLatency();
       running = false;
+      profile = TestProfile.manual;
+      _keepGoing = false;
       phase = null;
       _client = null;
       await store.flush();
@@ -435,6 +479,7 @@ class AppState extends ChangeNotifier {
         iv.elapsedSeconds.toStringAsFixed(1),
         iv.mbps.toStringAsFixed(2),
         site?.id,
+        profile.label,
         ...GpsCsv.values(position),
         ...radio.csvValues,
       ]);
@@ -462,7 +507,7 @@ class AppState extends ChangeNotifier {
         p90Mbps: stats?.p90,
       );
       _failStreak = 0;
-      if (settings.repeatUntilStopped) lastError = null;
+      if (_keepGoing) lastError = null;
     } catch (e) {
       final msg = e is IperfException
           ? e.message
@@ -477,7 +522,7 @@ class AppState extends ChangeNotifier {
         durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
         error: msg,
       );
-      if (settings.repeatUntilStopped) {
+      if (_keepGoing) {
         _failStreak++; // keep going: retry with back-off
       } else {
         _cancelSequence = true; // don't keep hammering a failing server
@@ -524,6 +569,8 @@ class AppState extends ChangeNotifier {
       site?.id,
       site?.name,
       Platform.operatingSystem,
+      profile.label,
+      _trigger,
       ...latencyCsv(record),
       ...GpsCsv.values(startPos ?? position),
       ...startRadio.csvValues,
@@ -648,6 +695,7 @@ class AppState extends ChangeNotifier {
         f(st.outboundAvgMs),
         f(st.inboundAvgMs),
         activeSite?.id,
+        profile.label,
         ...GpsCsv.values(s.position),
         ...s.radio.csvValues,
       ]);
@@ -666,6 +714,104 @@ class AppState extends ChangeNotifier {
     _flushLatency(all: true);
     _probe = null;
     await store.flush();
+  }
+
+  /// Walk profile: latency runs the whole time; a TCP speed test starts
+  /// automatically each time the phone joins Wi-Fi (and, if enabled, when it
+  /// moves to a new AP). Runs until Stop.
+  Future<void> startWalkTest() async {
+    if (running) return;
+    final problem = validateServer();
+    if (problem != null) {
+      lastError = problem;
+      notifyListeners();
+      return;
+    }
+    running = true;
+    profile = TestProfile.walk;
+    _keepGoing = true;
+    _cancelSequence = false;
+    lastError = null;
+    walkTests = 0;
+    round = 0;
+    phase = 'Walk test';
+    notifyListeners();
+    if (settings.keepScreenOn) {
+      try {
+        await WakelockPlus.enable();
+      } catch (_) {}
+    }
+    try {
+      await _startLatency();
+      String? lastConn = radio.connection;
+      String? lastBssid = radio.wifiBssid;
+      DateTime? lastTest;
+      // Already on Wi-Fi when the walk starts: test right away.
+      DateTime? pendingSince = radio.isWifi ? DateTime.now() : null;
+      String reason = radio.isWifi ? 'Walk start on Wi-Fi' : '';
+      while (!_cancelSequence) {
+        await Future.delayed(const Duration(seconds: 1));
+        if (_cancelSequence) break;
+        final r = radio;
+        final now = DateTime.now();
+        if (r.isWifi && lastConn != 'WIFI') {
+          pendingSince = now;
+          reason = 'Joined Wi-Fi ${r.wifiSsid ?? ''} ${r.wifiBssid ?? ''}'.trim();
+        } else if (settings.walkTriggerOnRoam && r.isWifi && r.wifiBssid != null &&
+            lastBssid != null && r.wifiBssid != lastBssid) {
+          pendingSince = now;
+          reason = 'AP change $lastBssid -> ${r.wifiBssid}';
+        }
+        if (!r.isWifi) pendingSince = null; // left Wi-Fi before the test began
+        lastConn = r.connection;
+        if (r.wifiBssid != null) lastBssid = r.wifiBssid;
+
+        if (pendingSince != null) {
+          final settled = now.difference(pendingSince).inSeconds >= settings.walkSettleSeconds;
+          final gapLeft = lastTest == null
+              ? 0
+              : settings.walkMinGapSeconds - now.difference(lastTest).inSeconds;
+          if (settled && gapLeft <= 0) {
+            pendingSince = null;
+            walkTests++;
+            round = walkTests;
+            _trigger = reason;
+            waitingText = null;
+            final configs = [_tcpConfig(IperfDirection.download), _tcpConfig(IperfDirection.upload)];
+            for (var i = 0; i < configs.length && !_cancelSequence; i++) {
+              if (i > 0) await Future.delayed(const Duration(milliseconds: 1500));
+              if (_cancelSequence) break;
+              await _runOne(configs[i]);
+            }
+            lastTest = DateTime.now();
+            phase = 'Walk test';
+            await store.flush();
+            continue;
+          }
+          waitingText = settled
+              ? 'Wi-Fi joined, next speed test in ${gapLeft}s'
+              : 'Wi-Fi joined, testing in ${settings.walkSettleSeconds - now.difference(pendingSince).inSeconds}s';
+        } else {
+          waitingText = r.isWifi
+              ? 'Walk: on Wi-Fi ${r.wifiSsid ?? ''}, waiting for next Wi-Fi join'
+              : 'Walk: on ${r.rat}, waiting for Wi-Fi';
+        }
+        notifyListeners();
+      }
+    } finally {
+      waitingText = null;
+      await _stopLatency();
+      running = false;
+      profile = TestProfile.manual;
+      _keepGoing = false;
+      phase = null;
+      _client = null;
+      await store.flush();
+      try {
+        await WakelockPlus.disable();
+      } catch (_) {}
+      notifyListeners();
+    }
   }
 
   /// Stand-alone latency test (no throughput traffic).
@@ -745,6 +891,8 @@ class AppState extends ChangeNotifier {
         site?.id,
         site?.name,
         Platform.operatingSystem,
+        profile.label,
+        'Manual',
         ...latencyCsv(record),
         ...GpsCsv.values(startPos ?? position),
         ...startRadio.csvValues,

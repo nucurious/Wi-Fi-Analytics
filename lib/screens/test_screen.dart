@@ -69,7 +69,51 @@ class _TestScreenState extends State<TestScreen> {
         ),
       );
     }
-    return Card(
+    final latencyBy = s.settings.twampHost.isNotEmpty ? 'TWAMP' : 'ping';
+    final profiles = Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Traffic profiles', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: s.startDriveTest,
+                icon: const Icon(Icons.directions_car),
+                label: const Text('Start drive test', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 12),
+              child: Text(
+                'Latency ($latencyBy) + continuous UDP ${s.settings.driveUdpDirection} at ${_fmtNum(s.settings.udpMbps)} Mbps until you stop. Restarts by itself after drops.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: s.startWalkTest,
+                icon: const Icon(Icons.directions_walk),
+                label: const Text('Start walk test', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Latency ($latencyBy) all the time + a speed test each time the phone joins Wi-Fi'
+                '${s.settings.walkTriggerOnRoam ? ' or moves to a new AP' : ''}. Runs until you stop.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final manual = Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -136,6 +180,7 @@ class _TestScreenState extends State<TestScreen> {
         ),
       ),
     );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [profiles, const SizedBox(height: 12), manual]);
   }
 }
 
@@ -252,7 +297,9 @@ class _LiveCard extends StatelessWidget {
     final s = state;
     final title = !s.running
         ? 'Ready'
-        : '${s.waitingText ?? s.phase ?? 'Starting…'}${s.settings.repeatUntilStopped && s.round > 0 ? '  ·  round ${s.round}' : ''}';
+        : '${s.profile != TestProfile.manual ? '${s.profile.label} · ' : ''}'
+            '${s.waitingText ?? s.phase ?? 'Starting…'}'
+            '${s.profile == TestProfile.walk ? '  ·  ${s.walkTests} speed test${s.walkTests == 1 ? '' : 's'}' : (s.round > 1 ? '  ·  round ${s.round}' : '')}';
     final timing = !s.running
         ? (s.settings.host.isEmpty ? 'Set your server in Settings' : 'Server ${s.settings.host}:${s.settings.port}')
         : s.plannedSeconds > 0

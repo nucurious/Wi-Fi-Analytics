@@ -35,6 +35,8 @@ If you update the app and the columns change, the older log is kept as `tests_ol
 | udp_target_mbps / udp_packet_bytes | UDP settings |
 | site_id / site_name | Site selected when the test ran |
 | device_platform | android or ios |
+| profile | Manual, Drive or Walk: how the session was started |
+| trigger | Why this test started: Manual, Repeat, Drive profile, `Joined Wi-Fi <SSID> <BSSID>`, `AP change <old> -> <new>`, or Walk start on Wi-Fi |
 | latency_target | Latency method and target measured during this test, e.g. `TWAMP 203.0.113.5:862` or `ICMP 1.1.1.1`. Blank if latency was off or unavailable |
 | rtt_avg_ms / rtt_min_ms / rtt_max_ms / rtt_median_ms | Round-trip time during the test (latency under load for throughput tests). TWAMP removes the reflector's own processing time |
 | rtt_jitter_ms | Mean difference between consecutive round-trip times (IPDV) |
@@ -51,6 +53,7 @@ If you update the app and the columns change, the older log is kept as `tests_ol
 | elapsed_s | Seconds since the test started |
 | interval_mbps | Throughput during the last second |
 | site_id | Selected site |
+| profile | Manual, Drive or Walk |
 | GPS + Radio columns | At the time of the sample |
 
 ## twamp.csv
@@ -67,6 +70,7 @@ Written while a test runs, if **Measure latency during every test** is on, and d
 | jitter_ms | Mean difference between consecutive round-trip times |
 | outbound_avg_ms / inbound_avg_ms | TWAMP only: phone→reflector and reflector→phone delay. Only meaningful if both clocks are synchronized (NTP/PTP); otherwise they include the clock offset |
 | site_id | Selected site |
+| profile | Manual, Drive or Walk |
 | GPS + Radio columns | When the first result of that second arrived |
 
 ## gps_track.csv
@@ -76,6 +80,7 @@ Written while a test runs, if **Measure latency during every test** is on, and d
 | time_utc / time_local | Sample time |
 | site_id | Selected site |
 | test_running | 1 if a test was running |
+| profile | Drive or Walk while that profile runs; blank when idle |
 | GPS + Radio columns | At the time of the sample |
 
 ## sites.csv

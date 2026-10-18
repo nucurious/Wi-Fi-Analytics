@@ -30,7 +30,7 @@ class DataStore {
     'min_mbps', 'max_mbps', 'median_mbps', 'p10_mbps', 'p90_mbps', 'jitter_ms',
     'lost_packets', 'total_packets', 'loss_pct', 'stopped_by_user', 'error',
     'server', 'port', 'parallel_streams', 'udp_target_mbps', 'udp_packet_bytes',
-    'site_id', 'site_name', 'device_platform',
+    'site_id', 'site_name', 'device_platform', 'profile', 'trigger',
     'latency_target', 'rtt_avg_ms', 'rtt_min_ms', 'rtt_max_ms', 'rtt_median_ms', 'rtt_jitter_ms',
     'rtt_loss_pct', 'rtt_packets',
     ...GpsCsv.header,
@@ -40,19 +40,19 @@ class DataStore {
   static final latencyHeader = <String>[
     'time_utc', 'time_local', 'test_id', 'test_type', 'method', 'target',
     'sent', 'received', 'lost', 'loss_pct', 'rtt_min_ms', 'rtt_avg_ms', 'rtt_max_ms', 'rtt_median_ms',
-    'jitter_ms', 'outbound_avg_ms', 'inbound_avg_ms', 'site_id',
+    'jitter_ms', 'outbound_avg_ms', 'inbound_avg_ms', 'site_id', 'profile',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
   ];
 
   static final samplesHeader = <String>[
-    'test_id', 'test_type', 'time_utc', 'time_local', 'elapsed_s', 'interval_mbps', 'site_id',
+    'test_id', 'test_type', 'time_utc', 'time_local', 'elapsed_s', 'interval_mbps', 'site_id', 'profile',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
   ];
 
   static final trackHeader = <String>[
-    'time_utc', 'time_local', 'site_id', 'test_running',
+    'time_utc', 'time_local', 'site_id', 'test_running', 'profile',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
   ];

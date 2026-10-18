@@ -141,6 +141,13 @@ Latency is measured with **TWAMP-Light**: the phone sends small timestamped UDP 
 
 Until a reflector is set, Android uses **ping** to the ping host in Settings (default 1.1.1.1). iPhones don't allow apps to ping, so on iPhone latency starts once the reflector is set. Routers often answer ping at low priority, so ping latency can read a little high; TWAMP is the reference.
 
+## Traffic profiles (Test tab)
+
+- **Drive test:** latency (TWAMP, or ping on Android without a reflector) plus one continuous UDP stream (direction in **Settings → Drive profile**; bitrate and packet size from **UDP stream**). Runs until you tap Stop. After a network change or server drop it restarts within 3–15 seconds.
+- **Walk test:** latency runs the whole time. Each time the phone **joins Wi-Fi**, the app waits a few seconds (**Settings → Walk profile**), then runs a TCP speed test (download + upload). Optionally it also tests when the phone **moves to a new AP** (Android). A minimum gap stops back-to-back tests. Runs until you tap Stop.
+
+Every row records the `profile`, and `tests.csv` records the `trigger` (for example `Joined Wi-Fi SpectrumWiFi a4:2b:…`).
+
 ## Overnight and weekend runs
 
 1. **Settings → Long runs:** turn on **Repeat until stopped** and set the pause between rounds (for example 900 s = a speed test every 15 minutes). For one continuous UDP stream, set the UDP duration to **0** instead; with Repeat on, it restarts on its own after a network change or server drop (retrying after 10 s, 20 s, 40 s … up to 2 minutes).
