@@ -1,4 +1,4 @@
-# WiFi Analytics: Build & Install Guide
+# Wi-Fi_Analytics_v1.3: Build & Install Guide
 
 This guide gets the app onto your phones **without installing any developer tools on your computer**. A free cloud service, **Codemagic**, builds the app for you:
 
@@ -6,6 +6,32 @@ This guide gets the app onto your phones **without installing any developer tool
 - **iPhone:** Codemagic builds the app and sends it to **TestFlight**, then you install it with Apple's TestFlight app.
 
 Plan on about an hour the first time. After that, a new build is one click.
+
+## Document versions
+
+| Version | Date | Commit(s) | Changes |
+|---|---|---|---|
+| 1.0 | Oct 17, 2026 | dde7a99 | First guide: GitHub, Codemagic, Android and iPhone builds, first run, server checklist. |
+| 1.1 | Oct 18, 2026 | a1f1e21, b210737 | TWAMP reflector; overnight and weekend runs. |
+| 1.2 | Oct 18, 2026 | 4dd5252, bc020ac, 72ca927 | Traffic profiles; email results; Excel workbook. |
+| 1.3 | Oct 18, 2026 | 90fe7a5 | Lab iperf3 server. |
+| 1.4 | Oct 19, 2026 | aaafbb5, 2f2829b | Debug app and logcat capture. |
+| 2.0 | Oct 19, 2026 | this update | App v1.3: APK names, Lab profile, test servers and automatic switching, lab server status, file naming, version tables. |
+
+## App and script versions
+
+| App / script | Version | Date | Commit(s) | Changes |
+|---|---|---|---|---|
+| Wi-Fi Analytics (Android) | 1.0 | Oct 17, 2026 | dde7a99 | First version in the repository: iperf3 TCP/UDP, ping latency, GPS and radio logging, sites, CSV export. |
+| Wi-Fi Analytics (Android) | 1.1 | Oct 18, 2026 | a1f1e21 to 72ca927 (Codemagic build 8) | TWAMP latency during every test; Wi-Fi generation and BSSID; long runs; Drive and Walk profiles; email when a session stops; Excel workbook; screen-freeze fixes. |
+| Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 (current) | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
+| Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 (current) | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
+| Wi-Fi Analytics (iPhone) | 1.3 (code) | Oct 19, 2026 | 1c9fce9 | Same code as Android v1.3. Not built yet: needs Bundle ID and App Store Connect key. |
+| setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
+| wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
+
+Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
 
 ---
 
@@ -44,9 +70,9 @@ Check: the repository's main page should show `codemagic.yaml`, `pubspec.yaml`, 
 ## Step 3: Build the Android app
 
 1. In Codemagic, open the app and click **Start new build**.
-2. Choose the workflow **Android APK** and click **Start new build**.
-3. Wait about 10 minutes for a green ✅.
-4. Under **Artifacts**, download `app-release.apk`.
+2. Choose the workflow **Android APK** (or **Android Debug APK (logcat)** for the debug app) and click **Start new build**.
+3. Wait about 15 minutes for a green ✅.
+4. Under **Artifacts**, download `Wi-Fi_Analytics_v1.3.apk` (debug app: `Analytics_debug_ver1.0.apk`). Both can be installed on the same phone.
 
 **Install it on the Android phone:**
 
@@ -106,11 +132,11 @@ TestFlight builds last 90 days. To refresh, just start a new iPhone build.
 
 ## Step 6: First run
 
-1. Open **WiFi Analytics** and allow **Location** ("While Using the App"). On Android also allow **Phone** (needed to read 4G/5G details; the app never makes calls).
-2. Go to **Settings** → enter your **iperf3 server address** and **port** (normally 5201) → **Save settings**.
+1. Open **Wi-Fi_Analytics_v1.3** and allow **Location** ("While Using the App"). On Android also allow **Phone** (needed to read 4G/5G details; the app never makes calls).
+2. Go to **Settings** → tap a server shortcut (or type the address only, and the port in **Port**) → enter the **IMEI last 4 digits** and the email sender (see below) → **Save settings**.
 3. (Optional) Go to **Sites** → **Add site here** to tag your current location.
 4. Go to **Test** → **Run speed test** or **Start UDP stream**.
-5. Go to **Data** → **Export CSV files** to email or save your results.
+5. Results are emailed when the session stops. **Data** → **Export Excel workbook** saves or shares everything logged so far.
 
 **Tips for good results**
 - Keep the app open on screen during tests. Both iPhone and Android pause network tests and GPS when the app is in the background. "Keep screen on during tests" (on by default) stops the phone from locking mid-test.
@@ -121,7 +147,7 @@ TestFlight builds last 90 days. To refresh, just start a new iPhone build.
 
 ## Your iperf3 server checklist
 
-**Lab server:** `96.37.191.0`, port `5201` (Dell OptiPlex 7070 on the lab's 1 Gbps Spectrum Business line). This is the app's default server address on a new install; existing installs keep whatever is in Settings. To add more iperf3 ports (so several testers can run at once) and the TWAMP reflector to that PC, run `server/setup-windows-test-server.ps1` on it as administrator.
+**Lab server:** Dell OptiPlex 7070 on the lab's 1 Gbps Spectrum Business line: LAN `10.92.5.100`, public IPv4 `96.37.191.0` (shared, behind the lab firewall), IPv6 `2600:6ce6:4406:6006:8b6e:251:99cb:9c38`, port `5201`. Status (Oct 19, 2026): reachable on the lab network; from outside, `96.37.191.0` times out until the lab firewall forwards TCP+UDP 5201–5205 and UDP 862 to `10.92.5.100` (requested from the lab network admin). Until then the app switches to the public servers below by itself. To add more iperf3 ports (so several testers can run at once) and the TWAMP reflector to that PC, run `server/setup-windows-test-server.ps1` on it as administrator.
 
 Quick reachability check from a Windows PC **outside** the lab network:
 `Test-NetConnection 96.37.191.0 -Port 5201` → `TcpTestSucceeded : True`. Testing from inside the lab can fail even when the server is fine (many routers don't loop traffic back to their own public IP); the definitive test is the app on a phone using **cellular**.
@@ -134,7 +160,7 @@ The phone connects to your server on the port in Settings (default 5201):
 
 - Start the server with: `iperf3 -s -p 5201`
 - Open **both TCP and UDP** on that port in the server's firewall / cloud security group. UDP tests need UDP open; speed tests need TCP.
-- iperf3 runs one test at a time. If another device is testing, the app waits and retries, then shows "server is busy".
+- iperf3 runs one test at a time per port. If another device is testing, the app waits and retries, then moves to the next port or server (see below).
 - Servers with iperf3 authentication (`--rsa-private-key-path`) aren't supported.
 
 ---
@@ -150,10 +176,20 @@ Latency is measured with **TWAMP-Light**: the phone sends small timestamped UDP 
 
 Until a reflector is set, Android uses **ping** to the ping host in Settings (default 1.1.1.1). iPhones don't allow apps to ping, so on iPhone latency starts once the reflector is set. Routers often answer ping at low priority, so ping latency can read a little high; TWAMP is the reference.
 
+## Test servers and automatic switching
+
+**Settings → iperf3 server** has shortcuts for the lab server and 11 US public servers (Clouvider, Leaseweb, IS.CC and others in Dallas, Chicago, Atlanta and Boston). Servers marked **no UDP** work for speed tests and Walk only. Each port runs one test at a time, so multi-port servers (Clouvider Dallas and Atlanta: 10 ports with UDP) are best when several phones test at once.
+
+With **Switch servers when a test can't start** on (default), a test that fails before any data (busy, refused, timed out, not found) is retried on the lab server's other ports (5201–5205), the busy server's next port, or the next public server (nearest to Denver first; UDP tests only use UDP servers), up to 8 tries. The server that works is kept for the rest of the session. Those failures go to the **Server failures** sheet, not to the results.
+
 ## Traffic profiles (Test tab)
 
 - **Drive test:** latency (TWAMP, or ping on Android without a reflector) plus one continuous UDP stream (direction in **Settings → Drive profile**; bitrate and packet size from **UDP stream**). Runs until you tap Stop. After a network change or server drop it restarts within 3–15 seconds.
 - **Walk test:** latency runs the whole time. Each time the phone **joins Wi-Fi**, the app waits a few seconds (**Settings → Walk profile**), then runs a TCP speed test (download + upload). Optionally it also tests when the phone **moves to a new AP** (Android). A minimum gap stops back-to-back tests. Runs until you tap Stop.
+
+- **Lab test:** latency plus one UDP downstream and one UDP upstream at the same time, until Stop (upstream on the next port, e.g. 5202, so run the server setup script first). The screen shows Down and Up Mbps. Files are named `Lab_…`; every other profile is `Field_…`.
+
+Walk tests only run while the phone is on Wi-Fi; a test that would start on cellular is skipped and listed on the Server failures sheet.
 
 Every row records the `profile`, and `tests.csv` records the `trigger` (for example `Joined Wi-Fi SpectrumWiFi a4:2b:…`).
 
@@ -164,7 +200,7 @@ When a session stops (Stop on a drive/walk/repeat run, or the end of a single te
 1. Use a Gmail account just for sending. Turn on **2-Step Verification**, then create an **App password** (Google Account → Security → App passwords).
 2. In the app, **Settings → Email results**: enter the sender Gmail address and the 16-character app password, check the IMEI last 4 digits (dial `*#06#`; Android 10+ and iPhone don't let apps read it), then **Save settings**.
 
-The attachment is one Excel workbook named `<Make>_<Model>_<IMEI last 4>_<Profile>_<date-time>.xlsx` (for example `samsung_SM-S938U_1234_Walk_20261018-121500.xlsx`) with a sheet each for **Tests**, **Speed (per second)**, **Latency (per second)** and **GPS track**. If a session is too big for one email (long weekend runs), its data is sent as gzip-compressed CSVs split across several emails instead. With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
+The attachment is one Excel workbook named `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx`, for example `Field_Samsung_S25_ylz1_walk_DAL_3245_20261019-1123.xlsx`: Lab only for the Lab profile; model as a short name (S25, S25E, 17ProMax); build = last 4 of the software build (iPhone: iOS version); profile walk, drive, lab or stationary; location from **Settings → Location code**, else the market nearest the site or GPS (DEN, DAL, HEN, ATL, CLT, MAC …); IMEI last 4 (`xxxx` if not set). **Settings → File names** shows the current name. The workbook has a sheet each for **Tests**, **Speed (per second)**, **Latency (per second)**, **GPS track**, **Server failures** and **Sites**. Data-tab exports hold every log and are named `…_all_…`. If a session is too big for one email (long weekend runs), its data is sent as gzip-compressed CSVs split across several emails instead. With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
 
 The app password is stored on the phone in the app's private storage. Use a sending account that holds nothing else.
 
@@ -201,7 +237,7 @@ Apple doesn't allow apps to read signal strength or cell details, so on iPhone y
 | "No UDP reply from the server" | UDP is blocked. Open UDP on the server port in the firewall/security group. Some guest Wi-Fi networks block UDP. |
 | Speed test shows much lower speeds than expected | Increase **Parallel streams** to 8 in Settings. |
 | UDP test shows high loss | The target bitrate may be higher than the link can carry. Lower the **Target bitrate**. |
-| Cell fields blank on Android | Allow **Phone** and **Location** permissions for the app in Android Settings → Apps → WiFi Analytics → Permissions, and make sure Location is on. |
+| Cell fields blank on Android | Allow **Phone** and **Location** permissions for the app in Android Settings → Apps → Wi-Fi_Analytics_v1.3 → Permissions, and make sure Location is on. |
 | Codemagic Android build fails | Open the failed step's log and send me the error text. |
 | Codemagic iPhone build fails at code signing | Check the Bundle ID is identical in all three `codemagic.yaml` lines, in Apple's Identifiers list, and in App Store Connect; and that the integration name is exactly `WiFi Analytics key`. |
 

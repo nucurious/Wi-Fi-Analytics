@@ -1,4 +1,4 @@
-# WiFi Analytics: CSV Data Dictionary
+# Wi-Fi_Analytics_v1.3: Data Dictionary
 
 All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't available (for example, signal metrics on iPhone, or a value the phone doesn't report).
 
@@ -9,8 +9,35 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `twamp.csv` | Second of latency measurement (TWAMP or ping) during a test |
 | `gps_track.csv` | Second while the app is open (if enabled in Settings) |
 | `sites.csv` | Saved site |
+| `server_failures.csv` | Test that could not start (server switched), or walk test skipped off Wi-Fi |
+
+The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Sites. File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
 Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
+
+## Document versions
+
+| Version | Date | Commit(s) | Changes |
+|---|---|---|---|
+| 1.0 | Oct 17, 2026 | dde7a99 | First data dictionary. |
+| 1.1 | Oct 18, 2026 | a1f1e21, 4dd5252 | Latency columns; profile and trigger columns. |
+| 1.2 | Oct 19, 2026 | f33eaac | server_failures.csv. |
+| 2.0 | Oct 19, 2026 | this update | Workbook sheets and file names; Lab profile; walk tests skipped off Wi-Fi; version tables. |
+
+## App and script versions
+
+| App / script | Version | Date | Commit(s) | Changes |
+|---|---|---|---|---|
+| Wi-Fi Analytics (Android) | 1.0 | Oct 17, 2026 | dde7a99 | First version in the repository: iperf3 TCP/UDP, ping latency, GPS and radio logging, sites, CSV export. |
+| Wi-Fi Analytics (Android) | 1.1 | Oct 18, 2026 | a1f1e21 to 72ca927 (Codemagic build 8) | TWAMP latency during every test; Wi-Fi generation and BSSID; long runs; Drive and Walk profiles; email when a session stops; Excel workbook; screen-freeze fixes. |
+| Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 (current) | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
+| Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 (current) | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
+| Wi-Fi Analytics (iPhone) | 1.3 (code) | Oct 19, 2026 | 1c9fce9 | Same code as Android v1.3. Not built yet: needs Bundle ID and App Store Connect key. |
+| setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
+| wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
+
+Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
 
 ## tests.csv
 
@@ -29,14 +56,14 @@ If you update the app and the columns change, the older log is kept as `tests_ol
 | jitter_ms | UDP only. RFC 1889 inter-arrival jitter measured by the receiver |
 | lost_packets / total_packets / loss_pct | UDP only. Measured by the receiver |
 | stopped_by_user | 1 if Stop was pressed |
-| error | Error message if the test failed |
+| error | Error message if the test failed after it started. Tests that never started are in server_failures.csv instead; tests stopped before any data are not recorded |
 | server / port | iperf3 server used |
 | parallel_streams | Number of parallel streams |
 | udp_target_mbps / udp_packet_bytes | UDP settings |
 | site_id / site_name | Site selected when the test ran |
 | device_platform | android or ios |
-| profile | Manual, Drive or Walk: how the session was started |
-| trigger | Why this test started: Manual, Repeat, Drive profile, `Joined Wi-Fi <SSID> <BSSID>`, `AP change <old> -> <new>`, or Walk start on Wi-Fi |
+| profile | Manual, Drive, Walk or Lab: how the session was started |
+| trigger | Why this test started: Manual, Repeat, Drive profile, Lab profile, `Joined Wi-Fi <SSID> <BSSID>`, `AP change <old> -> <new>`, or Walk start on Wi-Fi |
 | latency_target | Latency method and target measured during this test, e.g. `TWAMP 203.0.113.5:862` or `ICMP 1.1.1.1`. Blank if latency was off or unavailable |
 | rtt_avg_ms / rtt_min_ms / rtt_max_ms / rtt_median_ms | Round-trip time during the test (latency under load for throughput tests). TWAMP removes the reflector's own processing time |
 | rtt_jitter_ms | Mean difference between consecutive round-trip times (IPDV) |
