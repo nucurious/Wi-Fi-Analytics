@@ -45,16 +45,18 @@ class DataStore {
   ];
 
   static final geofenceHeader = <String>[
-    'time_utc', 'time_local', 'event', 'site_id', 'site_name', 'radius_m', 'distance_m', 'time_inside_s',
+    'time_utc', 'time_local', 'event', 'source', 'fence_id', 'fence_name', 'radius_m', 'distance_m',
+    'distance_to_edge_m', 'hmno_areas_inside', 'time_inside_s',
     'latitude', 'longitude', 'gps_accuracy_m', 'speed_kmh', 'heading_deg', 'profile', 'test_running', 'test_type',
     ...RadioSnapshot.csvHeader,
   ];
 
   static final dsdsHeader = <String>[
-    'time_utc', 'time_local', 'event', 'started_utc', 'gap_s', 'time_on_previous_s',
+    'time_utc', 'time_local', 'event', 'direction', 'success', 'started_utc', 'switch_time_s', 'time_on_previous_s',
     'from_sim', 'from_carrier', 'from_plmn', 'from_iface', 'from_ipv4', 'from_ipv6', 'from_ip_owner',
     'to_sim', 'to_carrier', 'to_plmn', 'to_iface', 'to_ipv4', 'to_ipv6', 'to_ip_owner',
-    'sims', 'default_connection', 'profile', 'test_running', 'test_type', 'site_id',
+    'sims', 'default_connection', 'in_hmno_geofence', 'hmno_area', 'hmno_edge_m',
+    'profile', 'test_running', 'test_type', 'site_id',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
   ];

@@ -1,12 +1,18 @@
+import 'dart:math';
+
 /// Dual SIM (DSDS) mobile-data transitions, detected from the data SIM and the
-/// cellular IP addresses (Android). Fed every second with RadioInfo.dataState().
+/// cellular IP addresses (Android). Fed 4 times a second with RadioInfo.dataState().
 ///
-/// Events:
-///   SIM switch       data moved to the other SIM (new IP on the new SIM)
-///   IP change        same SIM, new IP address (new PDN / re-attach)
-///   Data interrupted cellular IP disappeared and came back unchanged
-///   Data lost        no cellular IP for [lostAfter] (logged once; the next
-///                    SIM switch / IP change still closes the gap)
+/// A change of data SIM is a switch attempt. It succeeds when the new SIM's
+/// own network has an IP (switch time = from the old data path ending, or the
+/// SIM change if earlier, to the new IP); it fails if the phone goes back to
+/// the old SIM first, or no IP comes within [switchTimeout].
+///
+/// Direction: Hand In = onto the Spectrum HMNO subscription (PLMN 314020 or an
+/// HMNO IP); Hand Out = off it; Other = neither SIM is HMNO.
+///
+/// Events: SIM switch, SIM switch failed, IP change (same SIM, new address),
+/// Data interrupted (IP gone and back unchanged), Data lost (no IP for 30 s).
 class DsdsState {
   final int? slot;
   final int? _dataSub, _netSub;
@@ -30,21 +36,33 @@ class DsdsState {
   String get ips => '$ipv4|$ipv6';
   bool get known => slot != null || hasIp;
   String get label => slot == null ? 'no data SIM' : 'SIM$slot $carrier';
+  bool get isHmno => plmn == '314020' || DsdsEvent.owner(ipv4, ipv6).startsWith('Spectrum HMNO');
 }
 
 class DsdsEvent {
-  final DateTime time; // when the new data path was up (or loss confirmed)
+  final DateTime time;
   final String event;
   final DsdsState from, to;
-  final DateTime started; // when the old data path ended
-  final double gapSeconds; // no cellular IP between the two
-  final double? onPreviousSeconds; // time on the previous SIM / IP
-  DsdsEvent(this.time, this.event, this.from, this.to, this.started, this.onPreviousSeconds)
-      : gapSeconds = time.difference(started).inMilliseconds / 1000;
+  final DateTime started; // when the old data path ended (or the SIM changed)
+  final double? gapSeconds; // switch / outage time; null for a failed switch
+  final double? onPreviousSeconds; // time on the previous SIM / address
+  final String direction; // Hand In, Hand Out, Other ('' for non-switch events)
+  final bool? success; // switches only
+  DsdsEvent(this.time, this.event, this.from, this.to, this.started, this.onPreviousSeconds,
+      {this.direction = '', this.success, bool hasGap = true})
+      : gapSeconds = hasGap ? time.difference(started).inMilliseconds / 1000 : null;
 
-  String get summary => event == 'SIM switch'
-      ? 'SIM${from.slot} -> SIM${to.slot} (${to.carrier}), gap ${gapSeconds.toStringAsFixed(0)} s'
-      : '$event on SIM${to.slot ?? from.slot}, gap ${gapSeconds.toStringAsFixed(0)} s';
+  String get summary {
+    final g = gapSeconds == null ? '' : ', ${gapSeconds!.toStringAsFixed(1)} s';
+    return switch (event) {
+      'SIM switch' => '$direction SIM${from.slot} -> SIM${to.slot}$g',
+      'SIM switch failed' => '$direction failed SIM${from.slot} -> SIM${to.slot}',
+      _ => '$event on SIM${to.slot ?? from.slot}$g',
+    };
+  }
+
+  static String directionOf(DsdsState from, DsdsState to) =>
+      to.isHmno && !from.isHmno ? 'Hand In' : (from.isHmno && !to.isHmno ? 'Hand Out' : 'Other');
 
   /// Who owns an IP address, from the registry-checked ranges used by the
   /// PC analyzer (v5.14).
@@ -69,25 +87,32 @@ class DsdsEvent {
   }
 }
 
+class _Attempt {
+  final DsdsState from;
+  DsdsState to; // latest state on the target SIM (PLMN known before the IP)
+  final DateTime start;
+  _Attempt(this.from, this.to, this.start);
+}
+
 class DsdsTracker {
   static const lostAfter = Duration(seconds: 30);
+  static const switchTimeout = Duration(seconds: 60);
 
   DsdsState? current; // last snapshot seen
   DsdsState? _stable; // last state that had an IP
   DateTime? _stableSince; // when that SIM/IP started
   DateTime? _lostAt; // when the IP disappeared
   bool _lostLogged = false;
+  _Attempt? _attempt;
+  int? _timedOutSlot; // a switch to this SIM already counted as failed (no IP in time)
 
   /// Events in the running session (for the summary).
   final sessionEvents = <DsdsEvent>[];
-  final _onSlot = <int, double>{}; // seconds with data per SIM slot this session
   DateTime? _sessionStart;
 
   void startSession(DateTime t) {
     sessionEvents.clear();
-    _onSlot.clear();
     _sessionStart = t;
-    if (_stable != null && _lostAt == null) _stableSince = t;
   }
 
   List<DsdsEvent> update(Map<String, dynamic> raw, {DateTime? at}) {
@@ -98,12 +123,35 @@ class DsdsTracker {
     final out = <DsdsEvent>[];
     final prev = _stable;
 
+    DsdsEvent failed(_Attempt a) => DsdsEvent(now, 'SIM switch failed', a.from, a.to, a.start,
+        _secs(_stableSince, a.start), direction: DsdsEvent.directionOf(a.from, a.to), success: false, hasGap: false);
+
+    // A different data SIM than the one that last had an IP: a switch attempt.
+    if (prev != null && prev.slot != null && s.slot != null) {
+      final a = _attempt;
+      if (a != null && s.slot != a.to.slot) {
+        out.add(failed(a)); // went back (or on to a third SIM) before an IP came
+        _attempt = null;
+      }
+      if (s.slot == prev.slot) _timedOutSlot = null;
+      if (_attempt == null && s.slot != prev.slot && s.slot != _timedOutSlot) {
+        _attempt = _Attempt(prev, s, _lostAt ?? now);
+      } else if (_attempt != null) {
+        _attempt!.to = s;
+      }
+    }
+
     if (!s.hasIp) {
       if (prev != null && _lostAt == null) {
         _lostAt = now;
         _lostLogged = false;
       }
-      if (prev != null && _lostAt != null && !_lostLogged && now.difference(_lostAt!) >= lostAfter) {
+      final a = _attempt;
+      if (a != null && now.difference(a.start) >= switchTimeout) {
+        out.add(failed(a));
+        _attempt = null;
+        _timedOutSlot = a.to.slot;
+      } else if (a == null && prev != null && _lostAt != null && !_lostLogged && now.difference(_lostAt!) >= lostAfter) {
         _lostLogged = true;
         out.add(DsdsEvent(now, 'Data lost', prev, s, _lostAt!, _secs(_stableSince, _lostAt!)));
       }
@@ -113,18 +161,30 @@ class DsdsTracker {
     if (prev == null) {
       _stable = s;
       _stableSince = now;
-      return const [];
+      return _record(out);
     }
-    final simChanged = s.slot != null && prev.slot != null && s.slot != prev.slot;
-    final ipChanged = s.ips != prev.ips;
-    final started = _lostAt ?? now;
-    if (simChanged || ipChanged) {
-      out.add(DsdsEvent(now, simChanged ? 'SIM switch' : 'IP change', prev, s, started, _secs(_stableSince, started)));
-      _addTime(prev.slot, _stableSince, started);
+    final a = _attempt;
+    if (a != null && s.slot == a.to.slot) {
+      out.add(DsdsEvent(now, 'SIM switch', a.from, s, a.start, _secs(_stableSince, a.start),
+          direction: DsdsEvent.directionOf(a.from, s), success: true));
+      _attempt = null;
+      _stable = s;
+      _stableSince = now;
+    } else if (s.slot != null && prev.slot != null && s.slot != prev.slot) {
+      // IP on the new SIM after the switch had already timed out.
+      final started = _lostAt ?? now;
+      out.add(DsdsEvent(now, 'SIM switch (late)', prev, s, started, _secs(_stableSince, started),
+          direction: DsdsEvent.directionOf(prev, s), success: false));
+      _timedOutSlot = null;
+      _stable = s;
+      _stableSince = now;
+    } else if (s.ips != prev.ips) {
+      final started = _lostAt ?? now;
+      out.add(DsdsEvent(now, 'IP change', prev, s, started, _secs(_stableSince, started)));
       _stable = s;
       _stableSince = now;
     } else if (_lostAt != null) {
-      out.add(DsdsEvent(now, 'Data interrupted', prev, s, started, _secs(_stableSince, started)));
+      out.add(DsdsEvent(now, 'Data interrupted', prev, s, _lostAt!, _secs(_stableSince, _lostAt!)));
     }
     _lostAt = null;
     _lostLogged = false;
@@ -138,53 +198,45 @@ class DsdsTracker {
 
   static double? _secs(DateTime? a, DateTime b) => a == null ? null : b.difference(a).inMilliseconds / 1000;
 
-  void _addTime(int? slot, DateTime? from, DateTime to) {
-    if (slot == null || from == null || _sessionStart == null) return;
-    final start = from.isBefore(_sessionStart!) ? _sessionStart! : from;
-    _onSlot[slot] = (_onSlot[slot] ?? 0) + to.difference(start).inMilliseconds / 1000;
-  }
-
-  /// Session statistics as (metric, value) rows, for the "DSDS summary" sheet.
+  /// "Transition Performance" table for this session: rows Switch Count,
+  /// Successful switches, Mean, Median, Min, Max, Std Dev (seconds); columns
+  /// Hand In, Hand Out (and Other if any), then the other event counts.
   List<List<Object?>> summary(DateTime end) {
-    final onSlot = Map.of(_onSlot);
-    final st = _stable;
-    if (st?.slot != null && _stableSince != null && _lostAt == null && _sessionStart != null) {
-      final from = _stableSince!.isBefore(_sessionStart!) ? _sessionStart! : _stableSince!;
-      onSlot[st!.slot!] = (onSlot[st.slot!] ?? 0) + end.difference(from).inMilliseconds / 1000;
-    }
-    String f(double v) => v.toStringAsFixed(1);
-    List<double> gaps(Iterable<DsdsEvent> e) => e.map((x) => x.gapSeconds).toList()..sort();
-    double med(List<double> v) => v.isEmpty ? 0 : (v.length.isOdd ? v[v.length ~/ 2] : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2);
+    final dirs = ['Hand In', 'Hand Out', if (sessionEvents.any((e) => e.direction == 'Other')) 'Other'];
     final rows = <List<Object?>>[];
-    final byType = <String, List<DsdsEvent>>{};
-    for (final e in sessionEvents) {
-      byType.putIfAbsent(e.event, () => []).add(e);
+    String f(double v) => v.toStringAsFixed(3);
+    final attempts = {
+      for (final d in dirs)
+        d: sessionEvents.where((e) => e.direction == d && (e.event == 'SIM switch' || e.event == 'SIM switch failed')).toList()
+    };
+    final times = {
+      for (final d in dirs)
+        d: (attempts[d]!.where((e) => e.success == true).map((e) => e.gapSeconds!).toList()..sort())
+    };
+    double med(List<double> v) => v.length.isOdd ? v[v.length ~/ 2] : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2;
+    double sd(List<double> v) {
+      if (v.length < 2) return 0;
+      final m = v.reduce((a, b) => a + b) / v.length;
+      return sqrt(v.map((x) => (x - m) * (x - m)).reduce((a, b) => a + b) / (v.length - 1));
     }
-    rows.add(['Session length (s)', _sessionStart == null ? '' : f(end.difference(_sessionStart!).inMilliseconds / 1000), '', '', '']);
-    for (final slot in onSlot.keys.toList()..sort()) {
-      rows.add(['Time with data on SIM$slot (s)', f(onSlot[slot]!), '', '', '']);
-    }
-    // Per direction for SIM switches.
-    final dirs = <String, List<DsdsEvent>>{};
-    for (final e in byType['SIM switch'] ?? const <DsdsEvent>[]) {
-      dirs.putIfAbsent('SIM${e.from.slot} ${e.from.carrier} -> SIM${e.to.slot} ${e.to.carrier}', () => []).add(e);
-    }
-    for (final d in dirs.entries) {
-      final g = gaps(d.value);
-      rows.add(['SIM switch ${d.key}', d.value.length,
-          f(g.reduce((a, b) => a + b) / g.length), f(med(g)), f(g.last)]);
-    }
+
+    rows.add(['Switch Count', for (final d in dirs) attempts[d]!.length]);
+    rows.add(['Successful switches', for (final d in dirs) times[d]!.length]);
+    rows.add(['Mean (s)', for (final d in dirs) times[d]!.isEmpty ? '' : f(times[d]!.reduce((a, b) => a + b) / times[d]!.length)]);
+    rows.add(['Median (s)', for (final d in dirs) times[d]!.isEmpty ? '' : f(med(times[d]!))]);
+    rows.add(['Min (s)', for (final d in dirs) times[d]!.isEmpty ? '' : f(times[d]!.first)]);
+    rows.add(['Max (s)', for (final d in dirs) times[d]!.isEmpty ? '' : f(times[d]!.last)]);
+    rows.add(['Std Dev (s)', for (final d in dirs) times[d]!.length < 2 ? '' : f(sd(times[d]!))]);
+    rows.add([]);
     for (final t in ['IP change', 'Data interrupted', 'Data lost']) {
-      final e = byType[t] ?? const <DsdsEvent>[];
-      if (e.isEmpty) {
-        rows.add([t, 0, '', '', '']);
-        continue;
-      }
-      final g = gaps(e);
-      rows.add([t, e.length, f(g.reduce((a, b) => a + b) / g.length), f(med(g)), f(g.last)]);
+      rows.add(['$t (count)', sessionEvents.where((e) => e.event == t).length]);
     }
+    if (_sessionStart != null) {
+      rows.add(['Session length (s)', f(end.difference(_sessionStart!).inMilliseconds / 1000)]);
+    }
+    summaryHeader = ['Transition Type', ...dirs];
     return rows;
   }
 
-  static const summaryHeader = ['metric', 'count_or_value', 'gap_avg_s', 'gap_median_s', 'gap_max_s'];
+  List<String> summaryHeader = const ['Transition Type', 'Hand In', 'Hand Out'];
 }

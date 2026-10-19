@@ -26,7 +26,7 @@ class RadioInfo {
     }
   }
 
-  /// Android: data SIM (slot, carrier, PLMN) and cellular IPs. Cheap; poll every second.
+  /// Android: data SIM (slot, carrier, PLMN) and cellular IPs. Cheap; polled 4 times a second.
   static Future<Map<String, dynamic>> dataState() async {
     try {
       final m = await _channel.invokeMapMethod<String, dynamic>('getDataState');

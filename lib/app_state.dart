@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:radio_info/radio_info.dart';
@@ -66,6 +67,7 @@ class Settings {
   bool rotateServers;
 
   bool recordLogcat; // debug app only: capture logcat during each session
+  bool hmnoGeofence; // check the bundled Spectrum HMNO CBRS geofence
   int logcatPartMb; // rotate logcat files at this size (64 MB gzips to ~6 MB, fits email)
   int logcatParts; // keep this many rotated files (older ones are overwritten)
 
@@ -104,6 +106,7 @@ class Settings {
     this.imeiLast4 = '',
     this.rotateServers = true,
     this.recordLogcat = true,
+    this.hmnoGeofence = true,
     this.logcatPartMb = 64,
     this.logcatParts = 50,
     this.testEnvironment = 'auto',
@@ -141,6 +144,7 @@ class Settings {
         'imeiLast4': imeiLast4,
         'rotateServers': rotateServers,
         'recordLogcat': recordLogcat,
+        'hmnoGeofence': hmnoGeofence,
         'logcatPartMb': logcatPartMb,
         'logcatParts': logcatParts,
         'testEnvironment': testEnvironment,
@@ -184,6 +188,7 @@ class Settings {
       imeiLast4: j['imeiLast4'] as String? ?? d.imeiLast4,
       rotateServers: j['rotateServers'] as bool? ?? d.rotateServers,
       recordLogcat: j['recordLogcat'] as bool? ?? d.recordLogcat,
+      hmnoGeofence: j['hmnoGeofence'] as bool? ?? d.hmnoGeofence,
       logcatPartMb: (j['logcatPartMb'] as num?)?.toInt() ?? d.logcatPartMb,
       logcatParts: (j['logcatParts'] as num?)?.toInt() ?? d.logcatParts,
       testEnvironment: j['testEnvironment'] as String? ?? d.testEnvironment,
@@ -264,6 +269,7 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     await store.init();
     settings = Settings.fromJson(await store.loadSettings());
+    await _loadHmnoGeofence();
     sites = await store.loadSites();
     final activeId = (await store.loadSettings())['activeSiteId'] as String?;
     if (activeId != null) {
@@ -279,7 +285,7 @@ class AppState extends ChangeNotifier {
     await _pollRadio();
     _radioTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollRadio());
     if (Platform.isAndroid) {
-      _dsdsTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollDsds());
+      _dsdsTimer = Timer.periodic(const Duration(milliseconds: 250), (_) => _pollDsds());
     }
     _trackTimer = Timer.periodic(const Duration(seconds: 1), (_) => _logTrack());
     // Write buffered rows to disk regularly, so a crash or dead battery during
@@ -369,6 +375,21 @@ class AppState extends ChangeNotifier {
 
   final geofence = GeofenceTracker();
   GeofenceEvent? lastGeofence;
+  static const hmnoGeofenceFile = 'GeoFence_20260708.json';
+
+  /// Loads the bundled Spectrum HMNO CBRS geofence (541 CBSD areas).
+  Future<void> _loadHmnoGeofence() async {
+    if (!settings.hmnoGeofence) {
+      geofence.hmno = null;
+      return;
+    }
+    try {
+      final text = await rootBundle.loadString('assets/geofence/$hmnoGeofenceFile');
+      geofence.hmno = HmnoGeofence.parse(text, '20260708');
+    } catch (e) {
+      locationProblem = 'HMNO geofence file could not be loaded: $e';
+    }
+  }
 
   /// Every saved site with coordinates is a geofence; logs Entered / Exited.
   void _checkGeofence(Position p) {
@@ -380,10 +401,13 @@ class AppState extends ChangeNotifier {
         e.time.toUtc().toIso8601String(),
         _local(e.time),
         e.event,
-        e.site.id,
-        e.site.name,
-        e.site.radiusM.toStringAsFixed(0),
+        e.source,
+        e.fenceId,
+        e.fenceName,
+        e.radiusM.toStringAsFixed(0),
         e.distanceM.toStringAsFixed(1),
+        e.edgeM.toStringAsFixed(1),
+        e.source == 'Site' ? null : e.areasInside,
         e.dwellSeconds?.toStringAsFixed(0),
         e.latitude.toStringAsFixed(7),
         e.longitude.toStringAsFixed(7),
@@ -405,7 +429,7 @@ class AppState extends ChangeNotifier {
   Timer? _dsdsTimer;
   bool _dsdsBusy = false;
 
-  /// Android: data SIM and cellular IP every second; logs SIM switches and IP changes.
+  /// Android: data SIM and cellular IP 4 times a second; logs SIM switches and IP changes.
   Future<void> _pollDsds() async {
     if (_dsdsBusy) return;
     _dsdsBusy = true;
@@ -417,8 +441,10 @@ class AppState extends ChangeNotifier {
           e.time.toUtc().toIso8601String(),
           _local(e.time),
           e.event,
+          e.direction,
+          e.success == null ? null : (e.success! ? 'yes' : 'no'),
           e.started.toUtc().toIso8601String(),
-          e.gapSeconds.toStringAsFixed(1),
+          e.gapSeconds?.toStringAsFixed(3),
           e.onPreviousSeconds?.toStringAsFixed(1),
           e.from.slot == null ? null : 'SIM${e.from.slot}',
           e.from.carrier,
@@ -436,6 +462,9 @@ class AppState extends ChangeNotifier {
           DsdsEvent.owner(e.to.ipv4, e.to.ipv6),
           e.to.sims,
           radio.connection,
+          geofence.inHmno == null ? null : (geofence.inHmno! ? 'yes' : 'no'),
+          geofence.hmnoInside.isNotEmpty ? geofence.hmnoInside.first.$1.id : geofence.hmnoNearest?.id,
+          geofence.hmnoEdgeM.isFinite ? geofence.hmnoEdgeM.toStringAsFixed(0) : null,
           running ? profile.label : null,
           running ? 1 : 0,
           running ? phase : null,
@@ -460,13 +489,14 @@ class AppState extends ChangeNotifier {
       return RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
     }
 
-    final b = StringBuffer()..writeln(DsdsTracker.summaryHeader.map(q).join(','));
-    for (final r in dsds.summary(end)) {
+    final rows = dsds.summary(end);
+    final b = StringBuffer()..writeln(dsds.summaryHeader.map(q).join(','));
+    for (final r in rows) {
       b.writeln(r.map(q).join(','));
     }
     final f = File('${store.directory.path}/dsds_summary_session.csv');
     await f.writeAsString(b.toString());
-    return SheetSource('DSDS summary', f.path);
+    return SheetSource('Transition performance', f.path);
   }
 
   // ------------------------------------------------------------------ sites
@@ -529,7 +559,9 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------ settings
 
   Future<void> updateSettings(Settings s) async {
+    final reloadFence = s.hmnoGeofence != settings.hmnoGeofence;
     settings = s;
+    if (reloadFence) await _loadHmnoGeofence();
     await _saveSettings();
     notifyListeners();
   }
@@ -1203,7 +1235,7 @@ class AppState extends ChangeNotifier {
       ..writeln()
       ..writeln('Attached: $prefix.xlsx, one Excel workbook with a sheet each for')
       ..writeln('Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence,')
-      ..writeln('DSDS transitions and DSDS summary, for this session only.');
+      ..writeln('DSDS transitions and Transition performance (Hand In / Hand Out), for this session only.');
     b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
     if (logcatFiles.isNotEmpty) {
       final off = start.timeZoneOffset;
@@ -1215,11 +1247,12 @@ class AppState extends ChangeNotifier {
     final dsdsSheet = await _dsdsSummarySheet(end);
     final dsdsCounts = <String, int>{};
     for (final e in dsds.sessionEvents) {
-      dsdsCounts[e.event] = (dsdsCounts[e.event] ?? 0) + 1;
+      final k = e.direction.isEmpty ? e.event : '${e.direction}${e.success == false ? ' failed' : ''}';
+      dsdsCounts[k] = (dsdsCounts[k] ?? 0) + 1;
     }
     if (Platform.isAndroid) {
       b.writeln('Dual SIM data: ${dsdsCounts.isEmpty ? 'no SIM switches or IP changes' : dsdsCounts.entries.map((x) => '${x.value} ${x.key}').join(', ')} '
-          '(sheets DSDS transitions and DSDS summary). SIMs: ${dsds.current?.sims ?? '-'}');
+          '(sheets DSDS transitions and Transition performance). SIMs: ${dsds.current?.sims ?? '-'}');
     }
     try {
       final queued = await mailer.queueSession(

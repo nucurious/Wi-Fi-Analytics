@@ -41,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
-  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat;
+  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts;
   late String _env;
   bool _showPass = false;
@@ -84,6 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _repeat = s.repeatUntilStopped;
     _rotate = s.rotateServers;
     _logcat = s.recordLogcat;
+    _hmno = s.hmnoGeofence;
     _lcMb = TextEditingController(text: '${s.logcatPartMb}');
     _lcParts = TextEditingController(text: '${s.logcatParts}');
     _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
@@ -147,6 +148,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       imeiLast4: _imei.text.trim(),
       rotateServers: _rotate,
       recordLogcat: _logcat,
+      hmnoGeofence: _hmno,
       logcatPartMb: int.parse(_lcMb.text),
       logcatParts: int.parse(_lcParts.text),
       testEnvironment: _env,
@@ -367,6 +369,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               helper: 'e.g. 900 = a speed test every 15 minutes'),
           const SizedBox(height: 16),
           _section('Logging'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Spectrum HMNO CBRS geofence'),
+            subtitle: const Text('Logs entering and leaving the 541 HMNO CBRS areas (GeoFence_20260708.json) '
+                'on the Geofence sheet, and adds it to dual-SIM rows. Saved sites are always geofences.'),
+            value: _hmno,
+            onChanged: (v) => setState(() => _hmno = v),
+          ),
           if (kDebugApp)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

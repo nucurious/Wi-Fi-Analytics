@@ -291,6 +291,8 @@ class _StatusCard extends StatelessWidget {
         if (state.lastDsds != null) 'last: ${state.lastDsds!.summary}',
       ].join('  ·  ')));
     }
+    final hs = state.geofence.hmnoStatus();
+    if (hs.isNotEmpty) rows.add(_row(context, Icons.layers, 'HMNO fence', hs));
     final g = state.lastGeofence;
     if (g != null) {
       final t = g.time;
