@@ -316,15 +316,6 @@ class AppState extends ChangeNotifier {
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
     ).listen((p) {
       position = p;
-      // Lab means stationary: note if the phone moved during this session.
-      final from = _sessionStartPos;
-      if (_sessionStart != null && from == null) {
-        _sessionStartPos = p;
-      } else if (from != null && !_sessionMoved &&
-          (Geolocator.distanceBetween(from.latitude, from.longitude, p.latitude, p.longitude) > 50 ||
-              (p.speed > 1.5 && p.speedAccuracy < 1.0))) {
-        _sessionMoved = true;
-      }
       notifyListeners();
     }, onError: (Object e) {
       locationProblem = 'GPS error: $e';
@@ -967,26 +958,9 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------------ email
 
-  Position? _sessionStartPos;
-  bool _sessionMoved = false; // moved > 50 m (or walking speed) since the session started
 
-  /// "Lab" only for stationary testing in the lab: the Lab profile, or a
-  /// manual (stationary) test on a Wi-Fi network or site with "lab" in its
-  /// name while the phone stays put. Walk and Drive are always Field.
-  /// Settings > Field or Lab overrides this.
-  bool labFor(TestProfile p) {
-    switch (settings.testEnvironment) {
-      case 'lab':
-        return true;
-      case 'field':
-        return false;
-    }
-    if (p == TestProfile.lab) return true;
-    if (p == TestProfile.walk || p == TestProfile.drive) return false;
-    if (_sessionMoved) return false;
-    return (radio.wifiSsid ?? '').toLowerCase().contains('lab') ||
-        (activeSite?.name ?? '').toLowerCase().contains('lab');
-  }
+  /// File names say Lab only for the Lab profile; everything else is Field.
+  bool labFor(TestProfile p) => p == TestProfile.lab;
 
   bool get inLab => labFor(profile);
 
@@ -1012,7 +986,7 @@ class AppState extends ChangeNotifier {
   /// [export]: a Data-tab export of all logs, named ..._all_... instead of a profile.
   String fileName([TestProfile? p, DateTime? at, bool export = false]) {
     final prof = p ?? profile;
-    final lab = export ? settings.testEnvironment == 'lab' : labFor(prof);
+    final lab = !export && labFor(prof);
     final profileWord = export ? 'all' : switch (prof) {
       TestProfile.drive => 'drive',
       TestProfile.walk => 'walk',
@@ -1046,8 +1020,6 @@ class AppState extends ChangeNotifier {
   Future<void> _beginSession(TestProfile p) async {
     _sessionStart = DateTime.now();
     _sessionProfile = p;
-    _sessionStartPos = position;
-    _sessionMoved = false;
     _activeServer = null;
     _activeByTest.clear();
     _sessionOffsets = await mailer.markStart();

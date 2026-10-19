@@ -340,19 +340,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           _section('File names'),
           Text('Now: ${widget.state.fileName()}', style: Theme.of(context).textTheme.bodyMedium),
-          Text('Field/Lab _ make _ model _ build (last 4) _ profile _ location _ IMEI (last 4) _ date-time',
+          Text('Field/Lab _ make _ model _ build (last 4) _ profile _ location _ IMEI (last 4) _ date-time. '
+              'Lab only for the Lab profile; everything else is Field.',
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            value: _env,
-            decoration: const InputDecoration(labelText: 'Field or Lab'),
-            items: const [
-              DropdownMenuItem(value: 'auto', child: Text('Auto: Lab = Lab profile, or a stationary test on lab Wi-Fi / lab site')),
-              DropdownMenuItem(value: 'field', child: Text('Field')),
-              DropdownMenuItem(value: 'lab', child: Text('Lab')),
-            ],
-            onChanged: (v) => setState(() => _env = v ?? 'auto'),
-          ),
           TextFormField(
             controller: _locCode,
             decoration: const InputDecoration(
