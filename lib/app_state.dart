@@ -22,6 +22,7 @@ import 'services/data_store.dart';
 import 'services/dsds_tracker.dart';
 import 'services/geofence_tracker.dart';
 import 'services/logcat_recorder.dart';
+import 'services/stall_monitor.dart';
 import 'services/session_mailer.dart';
 
 class Settings {
@@ -268,6 +269,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     await store.init();
+    stalls.start();
     settings = Settings.fromJson(await store.loadSettings());
     await _loadHmnoGeofence();
     sites = await store.loadSites();
@@ -350,7 +352,14 @@ class AppState extends ChangeNotifier {
     if (_radioBusy) return;
     _radioBusy = true;
     try {
+      final sw = Stopwatch()..start();
       radio = RadioSnapshot(await RadioInfo.get());
+      final took = sw.elapsedMilliseconds;
+      if (took >= 3000) stalls.report('Slow native call', took, 'getRadioInfo (cell / Wi-Fi read)');
+      final lag = (radio.raw['mainLagMs'] as num?)?.toInt() ?? 0;
+      if (lag >= StallMonitor.thresholdMs) {
+        stalls.report('Android main thread blocked', lag, 'touches and screen updates waited $lag ms');
+      }
       notifyListeners();
     } finally {
       _radioBusy = false;
@@ -422,6 +431,29 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ------------------------------------------------------------------ UI freezes
+
+  late final stalls = StallMonitor(_onStall);
+
+  void _onStall(Stall s) {
+    store.addStall([
+      s.time.toUtc().toIso8601String(),
+      _local(s.time),
+      s.kind,
+      s.ms,
+      s.detail,
+      running ? 1 : 0,
+      running ? profile.label : null,
+      running ? phase : null,
+      _clients.length,
+      _probe == null ? null : latencyLabel,
+      logcat.running ? 1 : 0,
+      radio.connection,
+      radio.rat,
+    ]);
+    notifyListeners();
+  }
+
   // ------------------------------------------------------------------ dual SIM (DSDS)
 
   final dsds = DsdsTracker();
@@ -434,7 +466,12 @@ class AppState extends ChangeNotifier {
     if (_dsdsBusy) return;
     _dsdsBusy = true;
     try {
-      final events = dsds.update(await RadioInfo.dataState());
+      final sw = Stopwatch()..start();
+      final state = await RadioInfo.dataState();
+      if (sw.elapsedMilliseconds >= 3000) {
+        stalls.report('Slow native call', sw.elapsedMilliseconds, 'getDataState (SIM / IP read)');
+      }
+      final events = dsds.update(state);
       for (final e in events) {
         lastDsds = e;
         store.addDsds([
@@ -1189,6 +1226,7 @@ class AppState extends ChangeNotifier {
     _activeServer = null;
     _activeByTest.clear();
     dsds.startSession(_sessionStart!);
+    stalls.resetSession();
     _sessionOffsets = await mailer.markStart();
     if (kDebugApp && settings.recordLogcat) {
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
@@ -1236,6 +1274,7 @@ class AppState extends ChangeNotifier {
       ..writeln('Attached: $prefix.xlsx, one Excel workbook with a sheet each for')
       ..writeln('Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence,')
       ..writeln('DSDS transitions and Transition performance (Hand In / Hand Out), for this session only.');
+    b.writeln('UI freezes: ${stalls.count == 0 ? 'none' : '${stalls.count} (worst ${stalls.worstMs} ms), see the UI stalls sheet'}');
     b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
     if (logcatFiles.isNotEmpty) {
       final off = start.timeZoneOffset;
@@ -1507,6 +1546,7 @@ class AppState extends ChangeNotifier {
     _dsdsTimer?.cancel();
     _trackTimer?.cancel();
     _flushTimer?.cancel();
+    stalls.stop();
     _emailTimer?.cancel();
     _client?.stop();
     for (final c in List.of(_clients)) {

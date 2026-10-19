@@ -39,7 +39,11 @@ import android.telephony.TelephonyManager;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
@@ -66,6 +70,19 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
     private MethodChannel.Result pendingPermissionResult;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // Telephony / Wi-Fi / connectivity calls are binder calls that can block for
+    // seconds while the modem is busy (i.e. during a test). They run on these
+    // background threads, never on the main (touch/UI) thread; only the
+    // result is posted back to the main thread.
+    private final ScheduledExecutorService radioWorker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService dataWorker = Executors.newSingleThreadScheduledExecutor();
+
+    // Main-thread watchdog: every 200 ms a probe is posted to the main thread;
+    // the delay before it runs is how long the main thread was blocked.
+    private final AtomicLong maxMainLagMs = new AtomicLong(0);
+    private final AtomicBoolean probePending = new AtomicBoolean(false);
+    private ScheduledExecutorService watchdog;
+
     // Latest TelephonyDisplayInfo override type (tells us about 5G NSA). -1 = unknown.
     private volatile int overrideNetworkType = -1;
     private Object displayInfoCallback;
@@ -77,12 +94,25 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         context = binding.getApplicationContext();
         channel = new MethodChannel(binding.getBinaryMessenger(), CHANNEL);
         channel.setMethodCallHandler(this);
+        watchdog = Executors.newSingleThreadScheduledExecutor();
+        watchdog.scheduleAtFixedRate(() -> {
+            if (!probePending.compareAndSet(false, true)) return;
+            final long posted = android.os.SystemClock.uptimeMillis();
+            mainHandler.post(() -> {
+                long lag = android.os.SystemClock.uptimeMillis() - posted;
+                maxMainLagMs.accumulateAndGet(lag, Math::max);
+                probePending.set(false);
+            });
+        }, 200, 200, TimeUnit.MILLISECONDS);
     }
 
     @Override
     public void onDetachedFromEngine(FlutterPluginBinding binding) {
         channel.setMethodCallHandler(null);
         unregisterDisplayInfo();
+        if (watchdog != null) watchdog.shutdownNow();
+        radioWorker.shutdownNow();
+        dataWorker.shutdownNow();
     }
 
     @Override
@@ -117,14 +147,21 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
     public void onMethodCall(MethodCall call, MethodChannel.Result result) {
         switch (call.method) {
             case "getRadioInfo":
-                collect(result);
+                radioWorker.execute(() -> collect(result));
                 break;
-            case "getDataState": {
-                Map<String, Object> d = new HashMap<>();
-                putDataState(d);
-                result.success(d);
+            case "getDataState":
+                dataWorker.execute(() -> {
+                    Map<String, Object> d = new HashMap<>();
+                    try {
+                        putDataState(d);
+                    } catch (Exception ignored) {
+                    }
+                    mainHandler.post(() -> result.success(d));
+                });
                 break;
-            }
+            case "getMainThreadLag":
+                result.success(maxMainLagMs.getAndSet(0));
+                break;
             case "getDeviceInfo":
                 result.success(deviceInfo());
                 break;
@@ -241,7 +278,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         if (Build.VERSION.SDK_INT >= 29 && tm != null
                 && hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             try {
-                tm.requestCellInfoUpdate(context.getMainExecutor(), new TelephonyManager.CellInfoCallback() {
+                tm.requestCellInfoUpdate(radioWorker, new TelephonyManager.CellInfoCallback() {
                     @Override
                     public void onCellInfo(List<CellInfo> cellInfo) {
                         finish(done, result, tm, cellInfo);
@@ -253,7 +290,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
                     }
                 });
                 // Some devices never call back; fall back to cached info.
-                mainHandler.postDelayed(() -> finish(done, result, tm, null), 1500);
+                radioWorker.schedule(() -> finish(done, result, tm, null), 1500, TimeUnit.MILLISECONDS);
                 return;
             } catch (Exception ignored) {
                 // fall through
@@ -280,6 +317,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
     private Map<String, Object> build(TelephonyManager tm, List<CellInfo> fresh) {
         Map<String, Object> m = new HashMap<>();
         m.put("platform", "android");
+        m.put("mainLagMs", maxMainLagMs.getAndSet(0)); // worst main-thread block since the last read
         m.put("connection", connectionType());
         m.put("phonePermission", hasPermission(Manifest.permission.READ_PHONE_STATE));
         m.put("locationPermission", hasPermission(Manifest.permission.ACCESS_FINE_LOCATION));

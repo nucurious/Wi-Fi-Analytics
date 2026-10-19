@@ -32,6 +32,7 @@ class SessionMailer {
     DataStore.failuresFile,
     DataStore.geofenceFile,
     DataStore.dsdsFile,
+    DataStore.stallsFile,
   ];
 
   Directory get outbox => Directory('${store.directory.path}/outbox');

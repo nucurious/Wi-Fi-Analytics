@@ -291,6 +291,10 @@ class _StatusCard extends StatelessWidget {
         if (state.lastDsds != null) 'last: ${state.lastDsds!.summary}',
       ].join('  ·  ')));
     }
+    if (state.stalls.count > 0) {
+      rows.add(_row(context, Icons.hourglass_bottom, 'UI freezes',
+          '${state.stalls.count} this session, worst ${(state.stalls.worstMs / 1000).toStringAsFixed(1)} s (UI stalls sheet)'));
+    }
     final hs = state.geofence.hmnoStatus();
     if (hs.isNotEmpty) rows.add(_row(context, Icons.layers, 'HMNO fence', hs));
     final g = state.lastGeofence;
