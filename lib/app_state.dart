@@ -12,6 +12,7 @@ import 'iperf/iperf_client.dart';
 import 'iperf/server_pool.dart';
 import 'latency/latency_probe.dart';
 import 'models.dart';
+import 'util/file_naming.dart';
 import 'util/host_address.dart';
 import 'services/data_store.dart';
 import 'services/session_mailer.dart';
@@ -58,6 +59,10 @@ class Settings {
   // port / public server instead, and keep that failure out of the results.
   bool rotateServers;
 
+  // Output file names
+  String testEnvironment; // 'auto' | 'field' | 'lab'
+  String locationCode; // e.g. DAL; blank = from the site or GPS
+
   Settings({
     this.host = '96.37.191.0', // lab iperf3 server (Spectrum Business, 1 Gbps)
     this.port = 5201,
@@ -88,6 +93,8 @@ class Settings {
     this.smtpPassword = '',
     this.imeiLast4 = '',
     this.rotateServers = true,
+    this.testEnvironment = 'auto',
+    this.locationCode = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -120,6 +127,8 @@ class Settings {
         'smtpPassword': smtpPassword,
         'imeiLast4': imeiLast4,
         'rotateServers': rotateServers,
+        'testEnvironment': testEnvironment,
+        'locationCode': locationCode,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -158,6 +167,8 @@ class Settings {
       smtpPassword: j['smtpPassword'] as String? ?? d.smtpPassword,
       imeiLast4: j['imeiLast4'] as String? ?? d.imeiLast4,
       rotateServers: j['rotateServers'] as bool? ?? d.rotateServers,
+      testEnvironment: j['testEnvironment'] as String? ?? d.testEnvironment,
+      locationCode: j['locationCode'] as String? ?? d.locationCode,
     );
   }
 }
@@ -857,18 +868,63 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------------ email
 
-  /// "Samsung_SM-S938U_1234": make, model and last 4 IMEI digits, file-name safe.
-  String get devicePrefix {
-    String clean(Object? v) => (v ?? '').toString().trim().replaceAll(RegExp(r'[^A-Za-z0-9.-]+'), '-');
-    final make = clean(device['make']);
-    final model = clean(device['model']);
-    final imei = clean(settings.imeiLast4);
-    return [
-      make.isEmpty ? 'Phone' : make,
-      if (model.isNotEmpty) model,
-      imei.isEmpty ? 'IMEI-unknown' : imei,
-    ].join('_');
+  /// Lab when chosen in Settings, or (Auto) when on a Wi-Fi network or site
+  /// with "lab" in its name, or within 300 m of the Denver lab.
+  bool get inLab {
+    switch (settings.testEnvironment) {
+      case 'lab':
+        return true;
+      case 'field':
+        return false;
+    }
+    if ((radio.wifiSsid ?? '').toLowerCase().contains('lab')) return true;
+    if ((activeSite?.name ?? '').toLowerCase().contains('lab')) return true;
+    final p = position;
+    return p != null && (p.latitude - 39.6004).abs() < 0.0027 && (p.longitude - -104.8912).abs() < 0.0035;
   }
+
+  /// Market code: Settings override, else nearest city to the site, else to GPS.
+  String get locationLabel {
+    final o = settings.locationCode.trim();
+    if (o.isNotEmpty) return o.toUpperCase();
+    final s = activeSite;
+    if (s?.latitude != null && s?.longitude != null) {
+      final c = marketCode(s!.latitude!, s.longitude!);
+      if (c != null) return c;
+    }
+    final p = position;
+    if (p != null) {
+      final c = marketCode(p.latitude, p.longitude);
+      if (c != null) return c;
+    }
+    final n = (s?.name ?? '').replaceAll(RegExp(r'[^A-Za-z]'), '');
+    return n.length >= 3 ? n.substring(0, 3).toUpperCase() : 'NOLOC';
+  }
+
+  /// Output file name, e.g. Field_Samsung_S25_ylz1_walk_DAL_3245.
+  String fileName([TestProfile? p]) {
+    final prof = p ?? profile;
+    final lab = inLab;
+    final profileWord = switch (prof) {
+      TestProfile.drive => 'drive',
+      TestProfile.walk => 'walk',
+      TestProfile.manual => lab ? 'lab' : 'stationary',
+    };
+    final imei = settings.imeiLast4.trim().isNotEmpty
+        ? settings.imeiLast4.trim()
+        : (device['imeiLast4'] ?? 'xxxx').toString();
+    return [
+      lab ? 'Lab' : 'Field',
+      makeLabel(device),
+      modelLabel(device),
+      buildLabel(device).toLowerCase(),
+      profileWord,
+      locationLabel,
+      imei,
+    ].map(fileSafe).join('_');
+  }
+
+  String get devicePrefix => fileName();
 
   String? get emailStatus => mailer.lastStatus;
   int get emailPending => mailer.pendingCount();
@@ -887,7 +943,7 @@ class AppState extends ChangeNotifier {
     _sessionOffsets = null;
     if (start == null || offsets == null || !settings.emailResults) return;
     final end = DateTime.now();
-    final prefix = '${devicePrefix}_${_sessionProfile.label}_${_compact(start)}';
+    final prefix = fileName(_sessionProfile);
     final tests = recent.where((r) => !r.start.isBefore(start)).toList().reversed.toList();
     String two(int n) => n.toString().padLeft(2, '0');
     final dur = end.difference(start);

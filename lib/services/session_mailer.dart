@@ -56,7 +56,9 @@ class SessionMailer {
     required String body,
   }) async {
     await store.flush();
-    final dir = Directory('${outbox.path}/$filePrefix');
+    // Same name for every session of a day, so each gets its own outbox folder.
+    final t = DateTime.now();
+    final dir = Directory('${outbox.path}/${filePrefix}__${t.millisecondsSinceEpoch}');
     await dir.create(recursive: true);
 
     // Byte range of this session in each log (header added back for Excel).

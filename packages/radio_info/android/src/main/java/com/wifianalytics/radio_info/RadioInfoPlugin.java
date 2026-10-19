@@ -135,6 +135,13 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         m.put("make", Build.MANUFACTURER);
         m.put("model", Build.MODEL);
         m.put("osVersion", "Android " + Build.VERSION.RELEASE);
+        m.put("buildIncremental", Build.VERSION.INCREMENTAL); // Samsung: S938USQS4AYI1, Pixel: 13531031
+        m.put("buildDisplay", Build.DISPLAY);
+        // Marketing name ("Galaxy S25+"); the owner can rename it, so it is only a fallback.
+        try {
+            String name = android.provider.Settings.Global.getString(context.getContentResolver(), "device_name");
+            if (name != null) m.put("marketName", name);
+        } catch (Exception ignored) { }
         // Android 10+ only lets system apps read the IMEI; on older versions
         // READ_PHONE_STATE is enough. Only the last 4 digits are kept.
         try {

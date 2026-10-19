@@ -41,7 +41,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
   late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate;
-  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei;
+  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode;
+  late String _env;
   bool _showPass = false;
   late String _driveDir;
   bool _loaded = false;
@@ -91,6 +92,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _smtpUser = TextEditingController(text: s.smtpUser);
     _smtpPass = TextEditingController(text: s.smtpPassword);
     _imei = TextEditingController(text: s.imeiLast4);
+    _locCode = TextEditingController(text: s.locationCode);
+    _env = s.testEnvironment;
     setState(() => _loaded = true);
   }
 
@@ -139,6 +142,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       smtpPassword: _smtpPass.text.trim(),
       imeiLast4: _imei.text.trim(),
       rotateServers: _rotate,
+      testEnvironment: _env,
+      locationCode: _locCode.text.trim().toUpperCase(),
     ));
     if (!mounted) return;
     FocusScope.of(context).unfocus();
@@ -319,11 +324,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
             controller: _imei,
             decoration: InputDecoration(
               labelText: 'IMEI last 4 digits (for file names)',
-              helperText: 'Dial *#06# to see the IMEI. File names: ${widget.state.devicePrefix}_<profile>_<date-time>',
+              helperText: 'Dial *#06# to see the IMEI. It is the last part of the file name.',
               helperMaxLines: 2,
             ),
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)],
+          ),
+          const SizedBox(height: 16),
+          _section('File names'),
+          Text('Now: ${widget.state.fileName()}', style: Theme.of(context).textTheme.bodyMedium),
+          Text('Field/Lab _ make _ model _ build (last 4) _ profile _ location _ IMEI (last 4)',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _env,
+            decoration: const InputDecoration(labelText: 'Field or Lab'),
+            items: const [
+              DropdownMenuItem(value: 'auto', child: Text('Auto (Lab on lab Wi-Fi, lab site or at the lab)')),
+              DropdownMenuItem(value: 'field', child: Text('Field')),
+              DropdownMenuItem(value: 'lab', child: Text('Lab')),
+            ],
+            onChanged: (v) => setState(() => _env = v ?? 'auto'),
+          ),
+          TextFormField(
+            controller: _locCode,
+            decoration: const InputDecoration(
+              labelText: 'Location code (optional)',
+              hintText: 'DAL, HEN, ATL, CLT, MAC, DEN ...',
+              helperText: 'Blank = nearest market to the site, else to GPS',
+            ),
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')), LengthLimitingTextInputFormatter(6)],
           ),
           const SizedBox(height: 16),
           _section('Long runs (overnight / weekend)'),

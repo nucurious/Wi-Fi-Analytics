@@ -38,7 +38,8 @@ public class RadioInfoPlugin: NSObject, FlutterPlugin {
             let machine = withUnsafePointer(to: &sys.machine) {
                 $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
             }
-            result(["make": "Apple", "model": machine, "osVersion": "iOS " + UIDevice.current.systemVersion])
+            result(["make": "Apple", "model": machine, "osVersion": "iOS " + UIDevice.current.systemVersion,
+                    "buildIncremental": UIDevice.current.systemVersion])
         case "hasPhonePermission", "requestPhonePermission":
             result(true)  // No permission needed on iOS.
         default:
