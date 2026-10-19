@@ -26,6 +26,8 @@ class DataStore {
   static const trackFile = 'gps_track.csv';
   static const latencyFile = 'twamp.csv';
   static const failuresFile = 'server_failures.csv';
+  static const geofenceFile = 'geofence.csv';
+  static const dsdsFile = 'dsds_transitions.csv';
   static const sitesFile = 'sites.csv';
   static const sitesJson = 'sites.json';
   static const settingsJson = 'settings.json';
@@ -38,6 +40,21 @@ class DataStore {
     'site_id', 'site_name', 'device_platform', 'profile', 'trigger',
     'latency_target', 'rtt_avg_ms', 'rtt_min_ms', 'rtt_max_ms', 'rtt_median_ms', 'rtt_jitter_ms',
     'rtt_loss_pct', 'rtt_packets',
+    ...GpsCsv.header,
+    ...RadioSnapshot.csvHeader,
+  ];
+
+  static final geofenceHeader = <String>[
+    'time_utc', 'time_local', 'event', 'site_id', 'site_name', 'radius_m', 'distance_m', 'time_inside_s',
+    'latitude', 'longitude', 'gps_accuracy_m', 'speed_kmh', 'heading_deg', 'profile', 'test_running', 'test_type',
+    ...RadioSnapshot.csvHeader,
+  ];
+
+  static final dsdsHeader = <String>[
+    'time_utc', 'time_local', 'event', 'started_utc', 'gap_s', 'time_on_previous_s',
+    'from_sim', 'from_carrier', 'from_plmn', 'from_iface', 'from_ipv4', 'from_ipv6', 'from_ip_owner',
+    'to_sim', 'to_carrier', 'to_plmn', 'to_iface', 'to_ipv4', 'to_ipv6', 'to_ip_owner',
+    'sims', 'default_connection', 'profile', 'test_running', 'test_type', 'site_id',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
   ];
@@ -68,7 +85,7 @@ class DataStore {
   ];
 
   static final sitesHeader = <String>[
-    'site_id', 'site_name', 'notes', 'latitude', 'longitude', 'gps_accuracy_m', 'created_utc',
+    'site_id', 'site_name', 'notes', 'latitude', 'longitude', 'gps_accuracy_m', 'created_utc', 'geofence_radius_m',
   ];
 
   Directory get directory => _dir;
@@ -124,6 +141,8 @@ class DataStore {
   void addTrack(List<Object?> row) => _append(trackFile, trackHeader, row);
   void addLatency(List<Object?> row) => _append(latencyFile, latencyHeader, row);
   void addFailure(List<Object?> row) => _append(failuresFile, failuresHeader, row);
+  void addGeofence(List<Object?> row) => _append(geofenceFile, geofenceHeader, row);
+  void addDsds(List<Object?> row) => _append(dsdsFile, dsdsHeader, row);
 
   /// Appends buffered rows to the files. Flushes run one after another, and
   /// new rows go into the buffer meanwhile, so writes never collide (the old
@@ -153,7 +172,7 @@ class DataStore {
     for (final s in sites) {
       b.writeln(_csvLine([
         s.id, s.name, s.notes, s.latitude?.toStringAsFixed(7), s.longitude?.toStringAsFixed(7),
-        s.accuracy?.toStringAsFixed(1), s.created.toUtc().toIso8601String(),
+        s.accuracy?.toStringAsFixed(1), s.created.toUtc().toIso8601String(), s.radiusM.toStringAsFixed(0),
       ]));
     }
     await file(sitesFile).writeAsString(b.toString());
@@ -210,7 +229,7 @@ class DataStore {
   Future<List<File>> exportFiles() async {
     await flush();
     final out = <File>[];
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, sitesFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, sitesFile]) {
       final f = file(name);
       if (await f.exists() && await f.length() > 0) out.add(f);
     }
@@ -267,13 +286,15 @@ class DataStore {
     latencyFile: 'Latency (per second)',
     trackFile: 'GPS track',
     failuresFile: 'Server failures',
+    geofenceFile: 'Geofence',
+    dsdsFile: 'DSDS transitions',
     sitesFile: 'Sites',
   };
 
   /// Deletes test, sample and track logs. Sites are kept.
   Future<void> clearLogs() async {
     await _closeAll();
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile]) {
       final f = file(name);
       if (await f.exists()) await f.delete();
     }

@@ -280,6 +280,23 @@ class _StatusCard extends StatelessWidget {
       if (r.pci != null) 'PCI ${r.pci}',
     ];
     if (cell.isNotEmpty) rows.add(_row(context, Icons.signal_cellular_alt, 'Cell', cell.join('  ·  ')));
+    // Dual SIM: which SIM carries data, its IP owner, last transition.
+    final d = state.dsds.current;
+    if (d != null && d.known) {
+      final ip = d.ipv6.isNotEmpty ? d.ipv6.split(',').first : d.ipv4.split(',').first;
+      rows.add(_row(context, Icons.sim_card, 'Data SIM', [
+        d.label,
+        if (d.plmn.isNotEmpty) d.plmn,
+        if (ip.isNotEmpty) ip else 'no IP',
+        if (state.lastDsds != null) 'last: ${state.lastDsds!.summary}',
+      ].join('  ·  ')));
+    }
+    final g = state.lastGeofence;
+    if (g != null) {
+      final t = g.time;
+      String two(int n) => n.toString().padLeft(2, '0');
+      rows.add(_row(context, Icons.fence, 'Geofence', '${g.summary}  ·  ${two(t.hour)}:${two(t.minute)}:${two(t.second)}'));
+    }
 
     return Card(
       child: Padding(

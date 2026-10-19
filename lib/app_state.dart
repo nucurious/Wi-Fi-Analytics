@@ -12,11 +12,14 @@ import 'app_config.dart';
 import 'iperf/iperf_background.dart';
 import 'iperf/iperf_client.dart';
 import 'iperf/server_pool.dart';
+import 'services/xlsx_writer.dart';
 import 'latency/latency_probe.dart';
 import 'models.dart';
 import 'util/file_naming.dart';
 import 'util/host_address.dart';
 import 'services/data_store.dart';
+import 'services/dsds_tracker.dart';
+import 'services/geofence_tracker.dart';
 import 'services/logcat_recorder.dart';
 import 'services/session_mailer.dart';
 
@@ -275,6 +278,9 @@ class AppState extends ChangeNotifier {
     await RadioInfo.requestPhonePermission();
     await _pollRadio();
     _radioTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollRadio());
+    if (Platform.isAndroid) {
+      _dsdsTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollDsds());
+    }
     _trackTimer = Timer.periodic(const Duration(seconds: 1), (_) => _logTrack());
     // Write buffered rows to disk regularly, so a crash or dead battery during
     // a long run loses at most a few seconds of data.
@@ -316,6 +322,7 @@ class AppState extends ChangeNotifier {
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
     ).listen((p) {
       position = p;
+      _checkGeofence(p);
       notifyListeners();
     }, onError: (Object e) {
       locationProblem = 'GPS error: $e';
@@ -358,23 +365,150 @@ class AppState extends ChangeNotifier {
     ]);
   }
 
+  // ------------------------------------------------------------------ geofence
+
+  final geofence = GeofenceTracker();
+  GeofenceEvent? lastGeofence;
+
+  /// Every saved site with coordinates is a geofence; logs Entered / Exited.
+  void _checkGeofence(Position p) {
+    final events = geofence.update(sites, p.latitude, p.longitude, p.accuracy,
+        speedMs: p.speed, heading: p.heading);
+    for (final e in events) {
+      lastGeofence = e;
+      store.addGeofence([
+        e.time.toUtc().toIso8601String(),
+        _local(e.time),
+        e.event,
+        e.site.id,
+        e.site.name,
+        e.site.radiusM.toStringAsFixed(0),
+        e.distanceM.toStringAsFixed(1),
+        e.dwellSeconds?.toStringAsFixed(0),
+        e.latitude.toStringAsFixed(7),
+        e.longitude.toStringAsFixed(7),
+        e.accuracyM.toStringAsFixed(1),
+        e.speedKmh?.toStringAsFixed(1),
+        e.headingDeg?.toStringAsFixed(0),
+        running ? profile.label : null,
+        running ? 1 : 0,
+        running ? phase : null,
+        ...radio.csvValues,
+      ]);
+    }
+  }
+
+  // ------------------------------------------------------------------ dual SIM (DSDS)
+
+  final dsds = DsdsTracker();
+  DsdsEvent? lastDsds;
+  Timer? _dsdsTimer;
+  bool _dsdsBusy = false;
+
+  /// Android: data SIM and cellular IP every second; logs SIM switches and IP changes.
+  Future<void> _pollDsds() async {
+    if (_dsdsBusy) return;
+    _dsdsBusy = true;
+    try {
+      final events = dsds.update(await RadioInfo.dataState());
+      for (final e in events) {
+        lastDsds = e;
+        store.addDsds([
+          e.time.toUtc().toIso8601String(),
+          _local(e.time),
+          e.event,
+          e.started.toUtc().toIso8601String(),
+          e.gapSeconds.toStringAsFixed(1),
+          e.onPreviousSeconds?.toStringAsFixed(1),
+          e.from.slot == null ? null : 'SIM${e.from.slot}',
+          e.from.carrier,
+          e.from.plmn,
+          e.from.iface,
+          e.from.ipv4,
+          e.from.ipv6,
+          DsdsEvent.owner(e.from.ipv4, e.from.ipv6),
+          e.to.slot == null ? null : 'SIM${e.to.slot}',
+          e.to.carrier,
+          e.to.plmn,
+          e.to.iface,
+          e.to.ipv4,
+          e.to.ipv6,
+          DsdsEvent.owner(e.to.ipv4, e.to.ipv6),
+          e.to.sims,
+          radio.connection,
+          running ? profile.label : null,
+          running ? 1 : 0,
+          running ? phase : null,
+          activeSite?.id,
+          ...GpsCsv.values(position),
+          ...radio.csvValues,
+        ]);
+      }
+      if (events.isNotEmpty) notifyListeners();
+    } catch (_) {
+      // Not available on this phone; ignore.
+    } finally {
+      _dsdsBusy = false;
+    }
+  }
+
+  /// This session's DSDS statistics as a one-off CSV for the "DSDS summary" sheet.
+  Future<SheetSource?> _dsdsSummarySheet(DateTime end) async {
+    if (!Platform.isAndroid) return null;
+    String q(Object? v) {
+      final s = v?.toString() ?? '';
+      return RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
+    }
+
+    final b = StringBuffer()..writeln(DsdsTracker.summaryHeader.map(q).join(','));
+    for (final r in dsds.summary(end)) {
+      b.writeln(r.map(q).join(','));
+    }
+    final f = File('${store.directory.path}/dsds_summary_session.csv');
+    await f.writeAsString(b.toString());
+    return SheetSource('DSDS summary', f.path);
+  }
+
   // ------------------------------------------------------------------ sites
 
-  Future<void> addSite({required String id, required String name, String notes = ''}) async {
+  /// [latitude]/[longitude] typed in; otherwise the current GPS position.
+  Future<void> addSite({required String id, required String name, String notes = '',
+      double radiusM = 100, double? latitude, double? longitude}) async {
     final p = position;
+    final typed = latitude != null && longitude != null;
     final site = Site(
       id: id.trim(),
       name: name.trim(),
       notes: notes.trim(),
-      latitude: p?.latitude,
-      longitude: p?.longitude,
-      accuracy: p?.accuracy,
+      latitude: typed ? latitude : p?.latitude,
+      longitude: typed ? longitude : p?.longitude,
+      accuracy: typed ? null : p?.accuracy,
+      radiusM: radiusM,
     );
     sites.removeWhere((s) => s.id == site.id);
     sites.insert(0, site);
     activeSite = site;
     await store.saveSites(sites);
     await _saveSettings();
+    notifyListeners();
+  }
+
+  Future<void> setSiteRadius(Site site, double radiusM) async {
+    final i = sites.indexWhere((s) => s.id == site.id);
+    if (i < 0) return;
+    final updated = Site(
+      id: site.id,
+      name: site.name,
+      notes: site.notes,
+      latitude: site.latitude,
+      longitude: site.longitude,
+      accuracy: site.accuracy,
+      radiusM: radiusM,
+      created: site.created,
+    );
+    sites[i] = updated;
+    if (activeSite?.id == site.id) activeSite = updated;
+    await store.saveSites(sites);
     notifyListeners();
   }
 
@@ -1022,6 +1156,7 @@ class AppState extends ChangeNotifier {
     _sessionProfile = p;
     _activeServer = null;
     _activeByTest.clear();
+    dsds.startSession(_sessionStart!);
     _sessionOffsets = await mailer.markStart();
     if (kDebugApp && settings.recordLogcat) {
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
@@ -1067,13 +1202,24 @@ class AppState extends ChangeNotifier {
     b
       ..writeln()
       ..writeln('Attached: $prefix.xlsx, one Excel workbook with a sheet each for')
-      ..writeln('Tests, Speed (per second), Latency (per second) and GPS track, for this session only.');
+      ..writeln('Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence,')
+      ..writeln('DSDS transitions and DSDS summary, for this session only.');
+    b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
     if (logcatFiles.isNotEmpty) {
       final off = start.timeZoneOffset;
       b.writeln('Also attached: logcat for this session (${logcatFiles.length} gzip file${logcatFiles.length == 1 ? '' : 's'}, '
           'logcat -b all -v time; times are phone local time, UTC${off.isNegative ? '-' : '+'}${off.inHours.abs().toString().padLeft(2, '0')}:00). '
           'Parts over the email size limit stay on the phone: '
           'adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat');
+    }
+    final dsdsSheet = await _dsdsSummarySheet(end);
+    final dsdsCounts = <String, int>{};
+    for (final e in dsds.sessionEvents) {
+      dsdsCounts[e.event] = (dsdsCounts[e.event] ?? 0) + 1;
+    }
+    if (Platform.isAndroid) {
+      b.writeln('Dual SIM data: ${dsdsCounts.isEmpty ? 'no SIM switches or IP changes' : dsdsCounts.entries.map((x) => '${x.value} ${x.key}').join(', ')} '
+          '(sheets DSDS transitions and DSDS summary). SIMs: ${dsds.current?.sims ?? '-'}');
     }
     try {
       final queued = await mailer.queueSession(
@@ -1082,6 +1228,7 @@ class AppState extends ChangeNotifier {
         subject: '$kAppName: $prefix',
         body: b.toString(),
         extraFiles: logcatFiles,
+        extraSheets: [if (dsdsSheet != null) dsdsSheet],
       );
       if (queued) unawaited(sendPendingEmail());
     } catch (e) {
@@ -1324,6 +1471,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _positionSub?.cancel();
     _radioTimer?.cancel();
+    _dsdsTimer?.cancel();
     _trackTimer?.cancel();
     _flushTimer?.cancel();
     _emailTimer?.cancel();

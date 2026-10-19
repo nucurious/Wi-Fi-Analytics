@@ -30,6 +30,8 @@ class SessionMailer {
     DataStore.latencyFile,
     DataStore.trackFile,
     DataStore.failuresFile,
+    DataStore.geofenceFile,
+    DataStore.dsdsFile,
   ];
 
   Directory get outbox => Directory('${store.directory.path}/outbox');
@@ -56,6 +58,7 @@ class SessionMailer {
     required String subject,
     required String body,
     List<File> extraFiles = const [], // e.g. logcat .txt.gz parts (always emailed; copied)
+    List<SheetSource> extraSheets = const [], // e.g. the DSDS summary, built for this session
   }) async {
     await store.flush();
     // Same name for every session of a day, so each gets its own outbox folder.
@@ -77,6 +80,7 @@ class SessionMailer {
       sources.add(SheetSource(DataStore.sheetNames[name] ?? name, src.path, start: start, end: len, header: header));
       slices.add((name, src.path, start, len, header));
     }
+    sources.addAll(extraSheets);
     if (sources.isEmpty) {
       await dir.delete(recursive: true);
       return false;

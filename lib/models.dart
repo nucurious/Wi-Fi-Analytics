@@ -57,6 +57,7 @@ class RadioSnapshot {
     'umtsDbm', 'umtsCid', 'umtsLac', 'umtsPsc', 'umtsUarfcn', 'gsmDbm', 'gsmCid', 'gsmLac', 'gsmArfcn',
     'wifiSsid', 'wifiBssid', 'wifiRssi', 'wifiFreqMhz', 'wifiBand', 'wifiChannel', 'wifiStandard',
     'wifiLinkMbps', 'wifiTxMbps', 'wifiRxMbps',
+    'dataSimSlot', 'dataCarrier', 'dataPlmn', 'cellIface', 'cellIpv4', 'cellIpv6',
   ];
 
   static List<String> get csvHeader => csvFields.map(_snake).toList();
@@ -74,6 +75,7 @@ class Site {
   final double? latitude;
   final double? longitude;
   final double? accuracy;
+  final double radiusM; // geofence radius
   final DateTime created;
 
   Site({
@@ -83,6 +85,7 @@ class Site {
     this.latitude,
     this.longitude,
     this.accuracy,
+    this.radiusM = 100,
     DateTime? created,
   }) : created = created ?? DateTime.now();
 
@@ -93,6 +96,7 @@ class Site {
         'latitude': latitude,
         'longitude': longitude,
         'accuracy': accuracy,
+        'radiusM': radiusM,
         'created': created.toIso8601String(),
       };
 
@@ -103,6 +107,7 @@ class Site {
         latitude: (j['latitude'] as num?)?.toDouble(),
         longitude: (j['longitude'] as num?)?.toDouble(),
         accuracy: (j['accuracy'] as num?)?.toDouble(),
+        radiusM: (j['radiusM'] as num?)?.toDouble() ?? 100,
         created: DateTime.tryParse(j['created'] as String? ?? ''),
       );
 }

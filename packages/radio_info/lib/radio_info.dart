@@ -26,6 +26,16 @@ class RadioInfo {
     }
   }
 
+  /// Android: data SIM (slot, carrier, PLMN) and cellular IPs. Cheap; poll every second.
+  static Future<Map<String, dynamic>> dataState() async {
+    try {
+      final m = await _channel.invokeMapMethod<String, dynamic>('getDataState');
+      return m ?? <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   /// Android: asks for READ_PHONE_STATE (needed for network type / 5G NSA).
   static Future<bool> requestPhonePermission() async {
     try {

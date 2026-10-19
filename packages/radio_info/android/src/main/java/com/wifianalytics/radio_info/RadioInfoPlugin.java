@@ -6,6 +6,10 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.NetworkSpecifier;
+import android.net.TelephonyNetworkSpecifier;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
@@ -26,6 +30,8 @@ import android.telephony.CellSignalStrength;
 import android.telephony.CellSignalStrengthLte;
 import android.telephony.CellSignalStrengthNr;
 import android.telephony.SignalStrength;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
@@ -113,6 +119,12 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             case "getRadioInfo":
                 collect(result);
                 break;
+            case "getDataState": {
+                Map<String, Object> d = new HashMap<>();
+                putDataState(d);
+                result.success(d);
+                break;
+            }
             case "getDeviceInfo":
                 result.success(deviceInfo());
                 break;
@@ -272,6 +284,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         m.put("phonePermission", hasPermission(Manifest.permission.READ_PHONE_STATE));
         m.put("locationPermission", hasPermission(Manifest.permission.ACCESS_FINE_LOCATION));
         putWifi(m);
+        putDataState(m);
         if (tm == null) return m;
 
         try {
@@ -523,6 +536,88 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             case 7: return "WiGig (ad)";
             case 8: return "Wi-Fi 7 (be)";
             default: return "Unknown";
+        }
+    }
+
+    /**
+     * Dual SIM (DSDS): which SIM carries mobile data, its carrier and PLMN,
+     * and the cellular data interface with its IP addresses.
+     * Keys: dataSubId, dataSimSlot (1-based), dataCarrier, dataPlmn, sims,
+     * cellIface, cellIpv4, cellIpv6 (comma-separated, no link-local), cellNetSubId.
+     */
+    @SuppressLint("MissingPermission")
+    private void putDataState(Map<String, Object> m) {
+        int dataSub = -1;
+        try {
+            if (Build.VERSION.SDK_INT >= 30) dataSub = SubscriptionManager.getActiveDataSubscriptionId();
+            if (dataSub < 0 && Build.VERSION.SDK_INT >= 24) dataSub = SubscriptionManager.getDefaultDataSubscriptionId();
+            if (dataSub >= 0) m.put("dataSubId", dataSub);
+        } catch (Exception ignored) {
+        }
+        try {
+            SubscriptionManager sm = (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+            if (sm != null && hasPermission(Manifest.permission.READ_PHONE_STATE)) {
+                List<SubscriptionInfo> subs = sm.getActiveSubscriptionInfoList();
+                if (subs != null) {
+                    StringBuilder all = new StringBuilder();
+                    for (SubscriptionInfo si : subs) {
+                        String plmn = Build.VERSION.SDK_INT >= 29
+                                ? (si.getMccString() == null ? "" : si.getMccString()) + (si.getMncString() == null ? "" : si.getMncString())
+                                : String.format("%03d%02d", si.getMcc(), si.getMnc());
+                        String name = String.valueOf(si.getCarrierName());
+                        int slot = si.getSimSlotIndex() + 1;
+                        if (all.length() > 0) all.append("; ");
+                        all.append("SIM").append(slot).append(' ').append(name).append(' ').append(plmn);
+                        if (si.getSubscriptionId() == dataSub) {
+                            m.put("dataSimSlot", slot);
+                            m.put("dataCarrier", name);
+                            m.put("dataPlmn", plmn);
+                        }
+                    }
+                    m.put("sims", all.toString());
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            Network best = null;
+            int bestSub = -1;
+            for (Network n : cm.getAllNetworks()) {
+                NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                if (nc == null || !nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                        || !nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue;
+                int sub = -1;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    NetworkSpecifier spec = nc.getNetworkSpecifier();
+                    if (spec instanceof TelephonyNetworkSpecifier) sub = ((TelephonyNetworkSpecifier) spec).getSubscriptionId();
+                }
+                if (best == null || (sub >= 0 && sub == dataSub)) {
+                    best = n;
+                    bestSub = sub;
+                }
+            }
+            if (best == null) return;
+            LinkProperties lp = cm.getLinkProperties(best);
+            if (lp == null) return;
+            StringBuilder v4 = new StringBuilder(), v6 = new StringBuilder();
+            for (LinkAddress la : lp.getLinkAddresses()) {
+                java.net.InetAddress a = la.getAddress();
+                if (a == null || a.isLinkLocalAddress() || a.isLoopbackAddress()) continue;
+                String s = a.getHostAddress();
+                if (s == null) continue;
+                int pct = s.indexOf('%');
+                if (pct >= 0) s = s.substring(0, pct);
+                StringBuilder b = a instanceof java.net.Inet4Address ? v4 : v6;
+                if (b.length() > 0) b.append(',');
+                b.append(s);
+            }
+            if (lp.getInterfaceName() != null) m.put("cellIface", lp.getInterfaceName());
+            if (v4.length() > 0) m.put("cellIpv4", v4.toString());
+            if (v6.length() > 0) m.put("cellIpv6", v6.toString());
+            if (bestSub >= 0) m.put("cellNetSubId", bestSub);
+        } catch (Exception ignored) {
         }
     }
 

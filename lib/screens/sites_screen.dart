@@ -25,7 +25,8 @@ class SitesScreen extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 'The selected site is attached to every test and GPS log row. '
-                '"Add site here" saves your current GPS position with the site.',
+                '"Add site here" saves your current GPS position (or typed coordinates) with the site. '
+                'Each site is a geofence: entering and leaving it is logged. Long-press a site to change its radius.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
@@ -58,9 +59,12 @@ class SitesScreen extends StatelessWidget {
                     ' ±${site.accuracy?.toStringAsFixed(0) ?? '?'} m'
               else
                 'No GPS when saved',
+              if (site.latitude != null)
+                'Geofence ${site.radiusM.toStringAsFixed(0)} m${state.geofence.isInside(site.id) ? ' · inside now' : ''}',
               if (site.notes.isNotEmpty) site.notes,
             ].join('\n')),
-      isThreeLine: site != null && site.notes.isNotEmpty,
+      isThreeLine: site != null && (site.notes.isNotEmpty || site.latitude != null),
+      onLongPress: site == null ? null : () => _editRadius(context, site),
       onTap: () => state.setActiveSite(site),
       trailing: site == null
           ? null
@@ -85,7 +89,30 @@ class SitesScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _editRadius(BuildContext context, Site site) async {
+    final ctl = TextEditingController(text: site.radiusM.toStringAsFixed(0));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Geofence radius: ${site.id}'),
+        content: TextField(
+          controller: ctl,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Radius (m)', helperText: '10 to 50000'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    final r = double.tryParse(ctl.text.trim());
+    if (ok == true && r != null && r >= 10 && r <= 50000) await state.setSiteRadius(site, r);
+  }
+
   Future<void> _addSite(BuildContext context) async {
+    final radiusCtl = TextEditingController(text: '100');
+    final coordCtl = TextEditingController();
     final idCtl = TextEditingController();
     final nameCtl = TextEditingController();
     final notesCtl = TextEditingController();
@@ -123,6 +150,25 @@ class SitesScreen extends StatelessWidget {
                   decoration: const InputDecoration(labelText: 'Notes (optional)'),
                   maxLines: 2,
                 ),
+                TextFormField(
+                  controller: radiusCtl,
+                  decoration: const InputDecoration(
+                      labelText: 'Geofence radius (m)', helperText: 'Entered / Exited is logged at this distance'),
+                  keyboardType: TextInputType.number,
+                  validator: (v) {
+                    final r = double.tryParse((v ?? '').trim());
+                    return r == null || r < 10 || r > 50000 ? 'Enter 10 to 50000' : null;
+                  },
+                ),
+                TextFormField(
+                  controller: coordCtl,
+                  decoration: const InputDecoration(
+                      labelText: 'Coordinates (optional)',
+                      hintText: '39.600400, -104.891200',
+                      helperText: 'Blank = current GPS position'),
+                  keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+                  validator: (v) => (v ?? '').trim().isEmpty || _parseCoords(v!) != null ? null : 'Use: latitude, longitude',
+                ),
               ],
             ),
           ),
@@ -139,7 +185,23 @@ class SitesScreen extends StatelessWidget {
       ),
     );
     if (ok == true) {
-      await state.addSite(id: idCtl.text, name: nameCtl.text, notes: notesCtl.text);
+      final c = _parseCoords(coordCtl.text);
+      await state.addSite(
+        id: idCtl.text,
+        name: nameCtl.text,
+        notes: notesCtl.text,
+        radiusM: double.tryParse(radiusCtl.text.trim()) ?? 100,
+        latitude: c?.$1,
+        longitude: c?.$2,
+      );
     }
+  }
+
+  static (double, double)? _parseCoords(String s) {
+    final m = RegExp(r'^\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$').firstMatch(s);
+    if (m == null) return null;
+    final lat = double.parse(m[1]!), lon = double.parse(m[2]!);
+    if (lat.abs() > 90 || lon.abs() > 180) return null;
+    return (lat, lon);
   }
 }
