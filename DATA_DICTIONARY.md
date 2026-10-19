@@ -26,6 +26,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 1.2 | Oct 19, 2026 | f33eaac | server_failures.csv. |
 | 2.0 | Oct 19, 2026 | 78ad25f | Workbook sheets and file names; Lab profile; walk tests skipped off Wi-Fi; version tables. |
 | 2.1 | Oct 19, 2026 | 994535f | geofence.csv, dsds_transitions.csv, DSDS summary, data SIM radio columns, site geofence radius. |
+| 2.2 | Oct 19, 2026 | b5ec863 | Spectrum HMNO CBRS geofence (541 areas); Hand In / Hand Out transition performance. |
 
 ## App and script versions
 
@@ -36,9 +37,9 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
 | Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334, 994535f (current) | Geofence: every saved site is a fence (radius per site), Entered / Exited logged with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches, IP changes and data gaps with IP owner on a DSDS transitions sheet, plus a DSDS summary per session; data SIM and cellular IP added to every row. |
-| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334, 994535f (current) | Same new features as 1.3.1, plus logcat as before. |
-| Wi-Fi Analytics (iPhone) | 1.3.1 (code) | Oct 19, 2026 | 994535f | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334 to b5ec863 (current) | Geofence: Spectrum HMNO CBRS geofence built in (GeoFence_20260708.json, 541 areas) plus saved sites; Entered / Exited with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches (Hand In / Hand Out, success, switch time), IP changes and data gaps on a DSDS transitions sheet, and a Transition performance sheet per session (count, successful, mean, median, min, max, std dev); data SIM and cellular IP on every row. |
+| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334 to b5ec863 (current) | Same new features as 1.3.1, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.1 (code) | Oct 19, 2026 | b5ec863 | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
@@ -183,14 +184,20 @@ the app moved to the next port of the same server (if busy) or the next public s
 
 ## geofence.csv (sheet "Geofence")
 
-Every saved site with coordinates is a circular geofence (sites.csv `geofence_radius_m`, default 100 m). Checked on every GPS fix while the app is open; fixes less accurate than 50 m are ignored.
+Two kinds of fence, checked on every GPS fix while the app is open (fixes less accurate than 50 m are ignored):
+
+- **HMNO CBRS**: the Spectrum HMNO CBRS geofence built into the app (`assets/geofence/GeoFence_20260708.json`, 541 CBSD radial areas, carrier 2449, band 48). The union of the areas is one coverage area; each event names the CBSD area involved. On/off in Settings → Logging.
+- **Site**: every saved site with coordinates (sites.csv `geofence_radius_m`, default 100 m).
 
 | Column | Meaning |
 |---|---|
 | time_utc, time_local | When the crossing was detected |
 | event | Entered (within the radius), Exited (10 m beyond the radius), Inside at start (app started inside the fence) |
-| site_id, site_name, radius_m | The fence |
-| distance_m | Distance from the site center at that fix |
+| source | HMNO CBRS or Site |
+| fence_id, fence_name, radius_m | CBSD area (e.g. HENRY_151GA_1001) or site; for HMNO Entered: the nearest area containing the phone; Exited: the nearest area |
+| distance_m | Distance from the area / site center |
+| distance_to_edge_m | Distance to its edge (negative = inside) |
+| hmno_areas_inside | HMNO: number of CBSD areas containing the phone |
 | time_inside_s | On Exited: time since Entered |
 | latitude, longitude, gps_accuracy_m, speed_kmh, heading_deg | GPS fix |
 | profile, test_running, test_type | What was running |
@@ -203,22 +210,29 @@ The data SIM and cellular IPs are read every second.
 | Column | Meaning |
 |---|---|
 | time_utc, time_local | When the new data path was up (or the loss confirmed) |
-| event | SIM switch (data moved to the other SIM), IP change (same SIM, new address), Data interrupted (IP gone and back unchanged), Data lost (no cellular IP for 30 s) |
-| started_utc | When the previous data path ended |
-| gap_s | Time without a cellular IP (resolution about 1 s) |
+| event | SIM switch (data moved to the other SIM and its network has an IP), SIM switch failed (went back to the old SIM, or no IP within 60 s), SIM switch (late) (IP after the timeout), IP change (same SIM, new address), Data interrupted (IP gone and back unchanged), Data lost (no cellular IP for 30 s) |
+| direction | Hand In (onto the Spectrum HMNO subscription: PLMN 314020 or HMNO IP), Hand Out (off it), Other; blank for non-switch events |
+| success | yes / no for switches |
+| started_utc | When the previous data path ended, or the data SIM changed if earlier |
+| switch_time_s | From started_utc to the IP on the new SIM (blank for failed). Read 4 times a second (about 0.25 s resolution) |
 | time_on_previous_s | Time on the previous SIM / address |
 | from_sim, from_carrier, from_plmn, from_iface, from_ipv4, from_ipv6 | Before |
 | to_sim, to_carrier, to_plmn, to_iface, to_ipv4, to_ipv6 | After |
 | from_ip_owner, to_ip_owner | From the registry-checked ranges (analyzer v5.14): Spectrum Mobile on Verizon (2600:100c, 100.124.x), Spectrum HMNO (2603:90f4, 10.14.x), Verizon Wireless (2600:1000::/28, 2600:1010::/29, 97.128/9, 174.192/10, 70.192/11), T-Mobile, AT&T Mobility, Carrier NAT, Private, Other |
 | sims | Active SIMs, e.g. `SIM1 Spectrum 311480; SIM2 Verizon 311480` |
 | default_connection | WIFI or CELLULAR (what the phone used by default) |
+| in_hmno_geofence, hmno_area, hmno_edge_m | Inside the HMNO CBRS geofence (yes/no), containing or nearest CBSD area, distance to its edge (negative = inside) |
 | profile, test_running, test_type, site_id | Context |
 | GPS + radio columns | At the event |
 
-## DSDS summary (sheet in the session email, Android)
+## Transition performance (sheet in the session email, Android)
 
-| Column | Meaning |
-|---|---|
-| metric | Session length; Time with data on SIM n; SIM switch SIMa carrier -> SIMb carrier (one row per direction); IP change; Data interrupted; Data lost |
-| count_or_value | Count of events, or seconds |
-| gap_avg_s, gap_median_s, gap_max_s | Gap without a cellular IP for those events |
+Same layout as the Transition Performance report, for this session:
+
+| Transition Type | Hand In | Hand Out |
+|---|---|---|
+| Switch Count | switch attempts onto HMNO | attempts off HMNO |
+| Successful switches | attempts with an IP on the new SIM within 60 s | … |
+| Mean (s), Median (s), Min (s), Max (s), Std Dev (s) | switch_time_s of the successful switches (sample std dev) | … |
+
+An **Other** column appears if neither SIM was HMNO. Below: counts of IP changes, interruptions and losses, and the session length.
