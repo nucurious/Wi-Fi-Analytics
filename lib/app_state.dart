@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'iperf/iperf_background.dart';
 import 'iperf/iperf_client.dart';
+import 'iperf/server_pool.dart';
 import 'latency/latency_probe.dart';
 import 'models.dart';
 import 'util/host_address.dart';
@@ -53,6 +54,10 @@ class Settings {
   String smtpPassword; // Gmail app password (16 characters)
   String imeiLast4; // used in file names; auto-filled where Android allows
 
+  // When a test can't start (server busy, down or unreachable), try the next
+  // port / public server instead, and keep that failure out of the results.
+  bool rotateServers;
+
   Settings({
     this.host = '96.37.191.0', // lab iperf3 server (Spectrum Business, 1 Gbps)
     this.port = 5201,
@@ -82,6 +87,7 @@ class Settings {
     this.smtpUser = '',
     this.smtpPassword = '',
     this.imeiLast4 = '',
+    this.rotateServers = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -113,6 +119,7 @@ class Settings {
         'smtpUser': smtpUser,
         'smtpPassword': smtpPassword,
         'imeiLast4': imeiLast4,
+        'rotateServers': rotateServers,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -150,6 +157,7 @@ class Settings {
       smtpUser: j['smtpUser'] as String? ?? d.smtpUser,
       smtpPassword: j['smtpPassword'] as String? ?? d.smtpPassword,
       imeiLast4: j['imeiLast4'] as String? ?? d.imeiLast4,
+      rotateServers: j['rotateServers'] as bool? ?? d.rotateServers,
     );
   }
 }
@@ -492,7 +500,76 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _runOne(IperfConfig cfg) async {
+  /// Public server in use after a switch; later tests in the session start there.
+  (String, int)? _activeServer;
+
+  static IperfConfig _onServer(IperfConfig c, String host, int port) => IperfConfig(
+        host: host,
+        port: port,
+        protocol: c.protocol,
+        direction: c.direction,
+        durationSeconds: c.durationSeconds,
+        parallel: c.parallel,
+        udpBandwidthBps: c.udpBandwidthBps,
+        udpPacketLength: c.udpPacketLength,
+      );
+
+  /// Runs one test. With "Switch servers" on, a test that can't start (busy,
+  /// down, unreachable, timed out before any data) is retried on the next
+  /// port / public server; those failures go to the Server failures log, not
+  /// to the results.
+  Future<void> _runOne(IperfConfig base) async {
+    final udp = base.protocol == IperfProtocol.udp;
+    var cfg = base;
+    final active = _activeServer;
+    if (settings.rotateServers && active != null && (!udp || (publicServerFor(active.$1)?.udp ?? true))) {
+      cfg = _onServer(base, active.$1, active.$2);
+    }
+    final tried = <String>{};
+    for (var attempt = 0;; attempt++) {
+      tried.add('${cfg.host}:${cfg.port}');
+      final failed = await _runAttempt(cfg, skipSetupFailure: settings.rotateServers);
+      waitingText = null;
+      if (failed == null) return;
+      final next = attempt < 7 && !_cancelSequence
+          ? nextServer(cfg.host, cfg.port, busy: failed.toLowerCase().contains('busy'), udp: udp, tried: tried)
+          : null;
+      store.addFailure([
+        DateTime.now().toUtc().toIso8601String(),
+        _local(DateTime.now()),
+        cfg.label,
+        profile.label,
+        cfg.host,
+        cfg.port,
+        failed,
+        next?.$1,
+        next?.$2,
+        ...radio.csvValues,
+      ]);
+      if (next == null) {
+        _activeServer = null; // next round starts from the configured server again
+        lastError = _cancelSequence ? null : '${cfg.label}: $failed (no other server could run the test)';
+        if (_keepGoing) {
+          _failStreak++;
+        } else {
+          _cancelSequence = true;
+        }
+        notifyListeners();
+        return;
+      }
+      _activeServer = next;
+      waitingText = '${cfg.host}:${cfg.port} could not run the test, switching to ${next.$1}:${next.$2}';
+      notifyListeners();
+      cfg = _onServer(cfg, next.$1, next.$2);
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_cancelSequence) return;
+    }
+  }
+
+  /// One test on one server. Returns null when the test ran (or failed after
+  /// data started) and was recorded; returns the error, without recording,
+  /// when [skipSetupFailure] and the test never got going.
+  Future<String?> _runAttempt(IperfConfig cfg, {required bool skipSetupFailure}) async {
     final start = DateTime.now();
     final testId = '${_compact(start)}-${cfg.label.replaceAll(' ', '').toLowerCase()}';
     final startPos = position;
@@ -514,6 +591,7 @@ class AppState extends ChangeNotifier {
     final client = BackgroundIperfClient(cfg);
     _client = client;
     final sub = client.intervals.listen((iv) {
+      if (samples.isEmpty) waitingText = null; // clear "switching to ..." once data flows
       currentMbps = iv.mbps;
       elapsed = iv.elapsedSeconds;
       liveSeries.add(iv.mbps);
@@ -536,6 +614,7 @@ class AppState extends ChangeNotifier {
     });
 
     TestRecord record;
+    String? setupError;
     try {
       final r = await client.run();
       final stats = SpeedStats.of(samples);
@@ -563,7 +642,11 @@ class AppState extends ChangeNotifier {
           : e is SocketException
               ? 'Network error: ${e.osError?.message ?? e.message}'
               : e.toString();
-      lastError = '${cfg.label}: $msg';
+      if (skipSetupFailure && samples.isEmpty && !_cancelSequence) {
+        setupError = msg;
+      } else {
+        lastError = '${cfg.label}: $msg';
+      }
       record = TestRecord(
         testId: testId,
         type: cfg.label,
@@ -571,7 +654,9 @@ class AppState extends ChangeNotifier {
         durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
         error: msg,
       );
-      if (_keepGoing) {
+      if (setupError != null) {
+        // The caller switches server; this attempt is not a result.
+      } else if (_keepGoing) {
         _failStreak++; // keep going: retry with back-off
       } else {
         _cancelSequence = true; // don't keep hammering a failing server
@@ -579,6 +664,10 @@ class AppState extends ChangeNotifier {
     } finally {
       await sub.cancel();
       await client.dispose();
+    }
+    if (setupError != null) {
+      _windows.remove(window);
+      return setupError;
     }
 
     // Latency under load for this test (packets still in flight settle first).
@@ -626,6 +715,7 @@ class AppState extends ChangeNotifier {
     ]);
     await store.flush();
     notifyListeners();
+    return null;
   }
 
   static List<Object?> latencyCsv(TestRecord r) {
@@ -786,6 +876,7 @@ class AppState extends ChangeNotifier {
   Future<void> _beginSession(TestProfile p) async {
     _sessionStart = DateTime.now();
     _sessionProfile = p;
+    _activeServer = null;
     _sessionOffsets = await mailer.markStart();
   }
 

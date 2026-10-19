@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../iperf/server_pool.dart';
 import '../util/host_address.dart';
 
 
@@ -39,7 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
-  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email;
+  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei;
   bool _showPass = false;
   late String _driveDir;
@@ -79,6 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _pingHost = TextEditingController(text: s.pingHost);
     _latDur = TextEditingController(text: '${s.latencyDuration}');
     _repeat = s.repeatUntilStopped;
+    _rotate = s.rotateServers;
     _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
     _driveDir = s.driveUdpDirection;
     _walkSettle = TextEditingController(text: '${s.walkSettleSeconds}');
@@ -136,6 +138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       smtpUser: _smtpUser.text.trim(),
       smtpPassword: _smtpPass.text.trim(),
       imeiLast4: _imei.text.trim(),
+      rotateServers: _rotate,
     ));
     if (!mounted) return;
     FocusScope.of(context).unfocus();
@@ -178,10 +181,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _port.text = '$port';
                   }),
                 ),
+              for (final p in publicServers)
+                ActionChip(
+                  label: Text(p.udp ? p.name : '${p.name} · no UDP'),
+                  onPressed: () => setState(() {
+                    _host.text = p.host;
+                    _port.text = '${p.firstPort}';
+                  }),
+                ),
             ],
           ),
-          Text('Tap to fill in, then Save settings. You can still edit the fields.',
+          Text('Tap to fill in, then Save settings. You can still edit the fields. '
+              '"no UDP" servers work for speed tests and Walk, not for UDP streams or Drive.',
               style: Theme.of(context).textTheme.bodySmall),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Switch servers when a test can\'t start'),
+            subtitle: const Text('If the server is busy, down or unreachable, tries its next port, then the next '
+                'public server (Dallas, Chicago, Atlanta, Boston). Those failures are left out of the results '
+                'and listed on a separate "Server failures" sheet.'),
+            value: _rotate,
+            onChanged: (v) => setState(() => _rotate = v),
+          ),
           const SizedBox(height: 16),
           _section('Speed test (TCP)'),
           _intField(_tcpDur, 'Duration per direction (seconds)', min: 3, max: 120),

@@ -129,3 +129,20 @@ site_id, site_name, notes, latitude, longitude, gps_accuracy_m, created_utc
 | wifi_link_mbps, wifi_tx_mbps, wifi_rx_mbps | Negotiated link rates |
 
 In 5G NSA, Android often reports the NR signal (nr_ss_*) without NR cell identity, because the phone is anchored on the LTE cell.
+
+## server_failures.csv (sheet "Server failures")
+
+Tests that could not start (server busy, down, unreachable, or timed out before any data) when
+Settings > "Switch servers when a test can't start" is on. These are **not** in the Tests sheet;
+the app moved to the next port of the same server (if busy) or the next public server
+(Dallas, Chicago, Atlanta, Boston; UDP tests only use servers that accept UDP).
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | When the attempt failed |
+| test_type | TCP/UDP Download/Upload |
+| profile | Manual, Drive or Walk |
+| server, port | Server that failed |
+| error | Why it failed |
+| switched_to, switched_port | Where the app tried next (blank = nothing left; test skipped this round) |
+| radio columns | Same as the Tests sheet |

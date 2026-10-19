@@ -28,6 +28,7 @@ class SessionMailer {
     DataStore.samplesFile,
     DataStore.latencyFile,
     DataStore.trackFile,
+    DataStore.failuresFile,
   ];
 
   Directory get outbox => Directory('${store.directory.path}/outbox');

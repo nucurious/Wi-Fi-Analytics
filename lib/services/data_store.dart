@@ -25,6 +25,7 @@ class DataStore {
   static const samplesFile = 'samples.csv';
   static const trackFile = 'gps_track.csv';
   static const latencyFile = 'twamp.csv';
+  static const failuresFile = 'server_failures.csv';
   static const sitesFile = 'sites.csv';
   static const sitesJson = 'sites.json';
   static const settingsJson = 'settings.json';
@@ -38,6 +39,11 @@ class DataStore {
     'latency_target', 'rtt_avg_ms', 'rtt_min_ms', 'rtt_max_ms', 'rtt_median_ms', 'rtt_jitter_ms',
     'rtt_loss_pct', 'rtt_packets',
     ...GpsCsv.header,
+    ...RadioSnapshot.csvHeader,
+  ];
+
+  static final failuresHeader = <String>[
+    'time_utc', 'time_local', 'test_type', 'profile', 'server', 'port', 'error', 'switched_to', 'switched_port',
     ...RadioSnapshot.csvHeader,
   ];
 
@@ -117,6 +123,7 @@ class DataStore {
   void addSample(List<Object?> row) => _append(samplesFile, samplesHeader, row);
   void addTrack(List<Object?> row) => _append(trackFile, trackHeader, row);
   void addLatency(List<Object?> row) => _append(latencyFile, latencyHeader, row);
+  void addFailure(List<Object?> row) => _append(failuresFile, failuresHeader, row);
 
   /// Appends buffered rows to the files. Flushes run one after another, and
   /// new rows go into the buffer meanwhile, so writes never collide (the old
@@ -203,7 +210,7 @@ class DataStore {
   Future<List<File>> exportFiles() async {
     await flush();
     final out = <File>[];
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, sitesFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, sitesFile]) {
       final f = file(name);
       if (await f.exists() && await f.length() > 0) out.add(f);
     }
@@ -259,13 +266,14 @@ class DataStore {
     samplesFile: 'Speed (per second)',
     latencyFile: 'Latency (per second)',
     trackFile: 'GPS track',
+    failuresFile: 'Server failures',
     sitesFile: 'Sites',
   };
 
   /// Deletes test, sample and track logs. Sites are kept.
   Future<void> clearLogs() async {
     await _closeAll();
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile]) {
       final f = file(name);
       if (await f.exists()) await f.delete();
     }
