@@ -7,6 +7,35 @@ This guide gets the app onto your phones **without installing any developer tool
 
 Plan on about an hour the first time. After that, a new build is one click.
 
+## Contents
+
+- [Document versions](#document-versions)
+- [App and script versions](#app-and-script-versions)
+- [What you need](#what-you-need)
+- [Step 1: Put the project on GitHub](#step-1-put-the-project-on-github)
+- [Step 2: Connect Codemagic](#step-2-connect-codemagic)
+- [Step 3: Build the Android app](#step-3-build-the-android-app)
+- [Step 4: Set up iPhone builds (one time)](#step-4-set-up-iphone-builds-one-time)
+  - [4a. Renew your Apple Developer membership](#4a-renew-your-apple-developer-membership)
+  - [4b. Choose and register a Bundle ID](#4b-choose-and-register-a-bundle-id)
+  - [4c. Create the app in App Store Connect](#4c-create-the-app-in-app-store-connect)
+  - [4d. Create an API key so Codemagic can upload for you](#4d-create-an-api-key-so-codemagic-can-upload-for-you)
+  - [4e. Add the key to Codemagic](#4e-add-the-key-to-codemagic)
+  - [4f. Put your Bundle ID in the project](#4f-put-your-bundle-id-in-the-project)
+- [Step 5: Build for iPhone and install via TestFlight](#step-5-build-for-iphone-and-install-via-testflight)
+- [Step 6: First run](#step-6-first-run)
+- [Your iperf3 server checklist](#your-iperf3-server-checklist)
+- [Your TWAMP reflector (for latency)](#your-twamp-reflector-for-latency)
+- [Test servers and automatic switching](#test-servers-and-automatic-switching)
+- [Traffic profiles (Test tab)](#traffic-profiles-test-tab)
+- [Geofence and dual-SIM (DSDS) logs](#geofence-and-dual-sim-dsds-logs)
+- [Emailing results automatically](#emailing-results-automatically)
+- [Overnight and weekend runs](#overnight-and-weekend-runs)
+- [What the app records on each platform](#what-the-app-records-on-each-platform)
+- [Troubleshooting](#troubleshooting)
+- [Alternative: building on your own computer](#alternative-building-on-your-own-computer)
+- [Debug app: Analytics_debug_ver1.0 (records logcat)](#debug-app-analytics_debug_ver10-records-logcat)
+
 ## Document versions
 
 | Version | Date | Commit(s) | Changes |
@@ -19,6 +48,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 2.0 | Oct 19, 2026 | 78ad25f | App v1.3: APK names, Lab profile, test servers and automatic switching, lab server status, file naming, version tables. |
 | 2.1 | Oct 19, 2026 | 994535f | Geofence and dual-SIM (DSDS) logs section; app 1.3.1 / debug 1.0.1. |
 | 2.2 | Oct 19, 2026 | b5ec863 | Spectrum HMNO CBRS geofence (541 areas); Hand In / Hand Out transition performance. |
+| 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
 
 ## App and script versions
 
@@ -29,9 +59,11 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
 | Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334 to b5ec863 (current) | Geofence: Spectrum HMNO CBRS geofence built in (GeoFence_20260708.json, 541 areas) plus saved sites; Entered / Exited with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches (Hand In / Hand Out, success, switch time), IP changes and data gaps on a DSDS transitions sheet, and a Transition performance sheet per session (count, successful, mean, median, min, max, std dev); data SIM and cellular IP on every row. |
-| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334 to b5ec863 (current) | Same new features as 1.3.1, plus logcat as before. |
-| Wi-Fi Analytics (iPhone) | 1.3.1 (code) | Oct 19, 2026 | b5ec863 | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334 to b5ec863 | Geofence: Spectrum HMNO CBRS geofence built in (GeoFence_20260708.json, 541 areas) plus saved sites; Entered / Exited with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches (Hand In / Hand Out, success, switch time), IP changes and data gaps on a DSDS transitions sheet, and a Transition performance sheet per session (count, successful, mean, median, min, max, std dev); data SIM and cellular IP on every row. |
+| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334 to b5ec863 | Same new features as 1.3.1, plus logcat as before. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.2 | Oct 19, 2026 | 96fa286 (current) | UI freeze fix: radio, Wi-Fi and SIM reads moved off the Android main thread. New UI stalls sheet (app thread, slow frames, Android main thread, slow native calls) with what was running. |
+| Analytics_debug_ver1.0 (Android) | 1.0.2 | Oct 19, 2026 | 96fa286 (current) | Same as 1.3.2, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.2 (code) | Oct 19, 2026 | 96fa286 | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 

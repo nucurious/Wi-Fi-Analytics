@@ -12,10 +12,29 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `server_failures.csv` | Test that could not start (server switched), or walk test skipped off Wi-Fi |
 | `geofence.csv` | Geofence crossing (Entered / Exited / Inside at start) |
 | `dsds_transitions.csv` | Dual-SIM data transition (Android) |
+| `ui_stalls.csv` | UI freeze longer than 0.7 s |
 
 The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Sites; the session email also has a Transition performance sheet (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
 Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
+
+
+## Contents
+
+- [Document versions](#document-versions)
+- [App and script versions](#app-and-script-versions)
+- [tests.csv](#testscsv)
+- [samples.csv](#samplescsv)
+- [twamp.csv](#twampcsv)
+- [gps_track.csv](#gps_trackcsv)
+- [sites.csv](#sitescsv)
+- [GPS columns](#gps-columns)
+- [Radio columns](#radio-columns)
+- [server_failures.csv (sheet "Server failures")](#server_failurescsv-sheet-server-failures)
+- [geofence.csv (sheet "Geofence")](#geofencecsv-sheet-geofence)
+- [dsds_transitions.csv (sheet "DSDS transitions", Android)](#dsds_transitionscsv-sheet-dsds-transitions-android)
+- [Transition performance (sheet in the session email, Android)](#transition-performance-sheet-in-the-session-email-android)
+- [ui_stalls.csv (sheet "UI stalls")](#ui_stallscsv-sheet-ui-stalls)
 
 ## Document versions
 
@@ -27,6 +46,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 2.0 | Oct 19, 2026 | 78ad25f | Workbook sheets and file names; Lab profile; walk tests skipped off Wi-Fi; version tables. |
 | 2.1 | Oct 19, 2026 | 994535f | geofence.csv, dsds_transitions.csv, DSDS summary, data SIM radio columns, site geofence radius. |
 | 2.2 | Oct 19, 2026 | b5ec863 | Spectrum HMNO CBRS geofence (541 areas); Hand In / Hand Out transition performance. |
+| 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
 
 ## App and script versions
 
@@ -37,9 +57,11 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
 | Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334 to b5ec863 (current) | Geofence: Spectrum HMNO CBRS geofence built in (GeoFence_20260708.json, 541 areas) plus saved sites; Entered / Exited with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches (Hand In / Hand Out, success, switch time), IP changes and data gaps on a DSDS transitions sheet, and a Transition performance sheet per session (count, successful, mean, median, min, max, std dev); data SIM and cellular IP on every row. |
-| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334 to b5ec863 (current) | Same new features as 1.3.1, plus logcat as before. |
-| Wi-Fi Analytics (iPhone) | 1.3.1 (code) | Oct 19, 2026 | b5ec863 | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334 to b5ec863 | Geofence: Spectrum HMNO CBRS geofence built in (GeoFence_20260708.json, 541 areas) plus saved sites; Entered / Exited with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches (Hand In / Hand Out, success, switch time), IP changes and data gaps on a DSDS transitions sheet, and a Transition performance sheet per session (count, successful, mean, median, min, max, std dev); data SIM and cellular IP on every row. |
+| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334 to b5ec863 | Same new features as 1.3.1, plus logcat as before. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.2 | Oct 19, 2026 | 96fa286 (current) | UI freeze fix: radio, Wi-Fi and SIM reads moved off the Android main thread. New UI stalls sheet (app thread, slow frames, Android main thread, slow native calls) with what was running. |
+| Analytics_debug_ver1.0 (Android) | 1.0.2 | Oct 19, 2026 | 96fa286 (current) | Same as 1.3.2, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.2 (code) | Oct 19, 2026 | 96fa286 | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
@@ -236,3 +258,17 @@ Same layout as the Transition Performance report, for this session:
 | Mean (s), Median (s), Min (s), Max (s), Std Dev (s) | switch_time_s of the successful switches (sample std dev) | … |
 
 An **Other** column appears if neither SIM was HMNO. Below: counts of IP changes, interruptions and losses, and the session length.
+
+## ui_stalls.csv (sheet "UI stalls")
+
+Every UI freeze longer than 0.7 s, to find what blocks the screen during runs.
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | When it was detected |
+| kind | App thread blocked (the app's Dart thread ran late), Slow frame (a frame took too long to build or draw), Android main thread blocked (touches and screen updates waited; native watchdog every 0.2 s), Slow native call (a radio or SIM read took more than 3 s) |
+| duration_ms | How long |
+| detail | Extra detail (frame build/raster time, which call) |
+| test_running, profile, test_type | What was running |
+| iperf_streams, latency, logcat_running | Load at the time |
+| connection, rat | Network at the time |
