@@ -198,7 +198,7 @@ class SessionMailer {
             text += '\n\nToo large to email (kept on the phone, export from the Data tab):\n  ${tooBig.join('\n  ')}';
           }
           final message = Message()
-            ..from = Address(user.trim(), 'WiFi Analytics')
+            ..from = Address(user.trim(), 'Wi-Fi_Analytics_v1.3')
             ..recipients.add(to.trim())
             ..subject = '${meta['subject']}$suffix'
             ..text = text
