@@ -319,6 +319,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         m.put("platform", "android");
         m.put("mainLagMs", maxMainLagMs.getAndSet(0)); // worst main-thread block since the last read
         m.put("connection", connectionType());
+        m.put("internetValidated", internetValidated());
         m.put("phonePermission", hasPermission(Manifest.permission.READ_PHONE_STATE));
         m.put("locationPermission", hasPermission(Manifest.permission.ACCESS_FINE_LOCATION));
         putWifi(m);
@@ -656,6 +657,20 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             if (v6.length() > 0) m.put("cellIpv6", v6.toString());
             if (bestSub >= 0) m.put("cellNetSubId", bestSub);
         } catch (Exception ignored) {
+        }
+    }
+
+    /** True when Android has checked that the active network reaches the internet. */
+    private boolean internetValidated() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null || Build.VERSION.SDK_INT < 23) return true;
+            Network n = cm.getActiveNetwork();
+            if (n == null) return false;
+            NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+            return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Exception e) {
+            return true;
         }
     }
 

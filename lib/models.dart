@@ -17,6 +17,8 @@ class RadioSnapshot {
   String get rat => _s('rat') ?? 'Unknown';
   String? get operatorName => _s('operator');
   bool get isWifi => connection == 'WIFI';
+  /// Android checked that the active network reaches the internet (true if unknown).
+  bool get internetOk => raw['internetValidated'] as bool? ?? true;
   bool get isNr => rat.startsWith('5G');
 
   int? get lteRsrp => _i('lteRsrp');

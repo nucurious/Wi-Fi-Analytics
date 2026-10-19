@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui' show FrameTiming;
+import 'dart:ui' show AppLifecycleState, FrameTiming;
 
 import 'package:flutter/scheduler.dart';
 
@@ -19,7 +19,9 @@ class Stall {
 ///  - Slow frame: a frame took too long to build or draw.
 ///  - Android main thread blocked: reported by the native watchdog (touches
 ///    and platform messages wait while it is blocked).
-///  - Slow native call: a radio / SIM read took too long to answer.
+///  - Slow native call: a radio / SIM read took too long to answer. These run in
+///    the background since 1.3.2, so they don't freeze the screen; they are
+///    logged (radio details on screen are stale meanwhile) but not counted as freezes.
 class StallMonitor {
   static const thresholdMs = 700;
   final void Function(Stall) onStall;
@@ -27,8 +29,10 @@ class StallMonitor {
 
   Timer? _tick;
   DateTime? _last;
-  int count = 0;
+  int count = 0; // real UI freezes (screen/touch blocked)
   int worstMs = 0;
+  int slowCalls = 0; // slow background radio / SIM reads (screen not blocked)
+  bool _wasResumed = true;
 
   void start() {
     _last = DateTime.now();
@@ -36,6 +40,11 @@ class StallMonitor {
       final now = DateTime.now();
       final late = now.difference(_last!).inMilliseconds - 200;
       _last = now;
+      // Screen off / app in background: Android pauses the app, which is not a freeze.
+      final resumed = SchedulerBinding.instance.lifecycleState == AppLifecycleState.resumed;
+      final wasResumed = _wasResumed;
+      _wasResumed = resumed;
+      if (!resumed || !wasResumed) return;
       if (late >= thresholdMs) report('App thread blocked', late, 'Dart UI isolate did not run for ${late + 200} ms');
     });
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
@@ -51,14 +60,19 @@ class StallMonitor {
   }
 
   void report(String kind, int ms, String detail) {
-    count++;
-    if (ms > worstMs) worstMs = ms;
+    if (kind == 'Slow native call') {
+      slowCalls++;
+    } else {
+      count++;
+      if (ms > worstMs) worstMs = ms;
+    }
     onStall(Stall(DateTime.now(), kind, ms, detail));
   }
 
   void resetSession() {
     count = 0;
     worstMs = 0;
+    slowCalls = 0;
   }
 
   void stop() {

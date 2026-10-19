@@ -471,7 +471,7 @@ class AppState extends ChangeNotifier {
       if (sw.elapsedMilliseconds >= 3000) {
         stalls.report('Slow native call', sw.elapsedMilliseconds, 'getDataState (SIM / IP read)');
       }
-      final events = dsds.update(state);
+      final events = dsds.update(state, onWifi: radio.isWifi);
       for (final e in events) {
         lastDsds = e;
         store.addDsds([
@@ -675,6 +675,9 @@ class AppState extends ChangeNotifier {
   }
 
   /// Stops the running test and any remaining tests in the sequence.
+  /// A test with no data for this long is ended as failed ("No data for 15 s").
+  static const noDataSeconds = 15;
+
   /// True from Stop until the test has wound down (UI shows "Stopping…").
   bool get stopping => running && _cancelSequence;
 
@@ -889,9 +892,18 @@ class AppState extends ChangeNotifier {
     final client = BackgroundIperfClient(cfg);
     _client = client;
     _clients.add(client);
+    // A test that moves no data for [noDataSeconds] in a row is ended (the
+    // connection is dead); it is recorded as failed with its samples.
+    var zeroRun = 0;
+    var noDataStop = false;
     final sub = client.intervals.listen((iv) {
       if (samples.isEmpty) waitingText = null; // clear "switching to ..." once data flows
       samples.add(iv.mbps);
+      zeroRun = iv.mbps < 0.01 ? zeroRun + 1 : 0;
+      if (zeroRun >= noDataSeconds && !noDataStop && !_cancelSequence) {
+        noDataStop = true;
+        client.stop();
+      }
       if (secondary) {
         upMbps = iv.mbps;
       } else {
@@ -922,6 +934,8 @@ class AppState extends ChangeNotifier {
       final r = await client.run();
       final stats = SpeedStats.of(samples);
       if (r.stoppedByUser && samples.isEmpty) setupError = 'stopped'; // Stop before any data
+      final noData = noDataStop ? 'No data for $noDataSeconds s; test ended' : null;
+      if (noData != null) lastError = '${cfg.label}: $noData';
       record = TestRecord(
         testId: testId,
         type: cfg.label,
@@ -931,22 +945,27 @@ class AppState extends ChangeNotifier {
         jitterMs: r.jitterMs,
         lost: r.lostPackets,
         total: r.totalPackets,
-        stoppedByUser: r.stoppedByUser,
+        stoppedByUser: r.stoppedByUser && !noDataStop,
+        error: noData,
         minMbps: stats?.min,
         maxMbps: stats?.max,
         medianMbps: stats?.median,
         p10Mbps: stats?.p10,
         p90Mbps: stats?.p90,
       );
-      _failStreak = 0;
-      if (_keepGoing) lastError = null;
+      if (noDataStop) {
+        _failStreak++;
+      } else {
+        _failStreak = 0;
+        if (_keepGoing) lastError = null;
+      }
     } catch (e) {
       final msg = e is IperfException
           ? e.message
           : e is SocketException
               ? 'Network error: ${e.osError?.message ?? e.message}'
               : e.toString();
-      final stoppedMidTest = samples.isNotEmpty && _cancelSequence;
+      final stoppedMidTest = samples.isNotEmpty && (_cancelSequence || noDataStop);
       if (samples.isEmpty && _cancelSequence) {
         setupError = 'stopped'; // you pressed Stop before any data: not a result
       } else if (skipSetupFailure && samples.isEmpty) {
@@ -964,7 +983,8 @@ class AppState extends ChangeNotifier {
               start: start,
               durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
               mbps: samples.reduce((a, b) => a + b) / samples.length,
-              stoppedByUser: true,
+              stoppedByUser: !noDataStop,
+              error: noDataStop ? 'No data for $noDataSeconds s; test ended' : null,
               minMbps: stats?.min,
               maxMbps: stats?.max,
               medianMbps: stats?.median,
@@ -1403,9 +1423,11 @@ class AppState extends ChangeNotifier {
             for (var i = 0; i < configs.length && !_cancelSequence; i++) {
               if (i > 0) await Future.delayed(const Duration(milliseconds: 1500));
               if (_cancelSequence) break;
-              // Walk tests measure Wi-Fi: skip (and log) if the phone is on cellular now.
+              // Walk tests measure Wi-Fi: skip (and log) if the phone is on cellular now,
+              // or the Wi-Fi has no internet (Android could not validate it, e.g. captive
+              // portal or Passpoint sign-in that failed).
               await _pollRadio();
-              if (!radio.isWifi) {
+              if (!radio.isWifi || !radio.internetOk) {
                 store.addFailure([
                   DateTime.now().toUtc().toIso8601String(),
                   _local(DateTime.now()),
@@ -1413,7 +1435,9 @@ class AppState extends ChangeNotifier {
                   profile.label,
                   configs[i].host,
                   configs[i].port,
-                  'Skipped: phone is not on Wi-Fi (${radio.connection ?? 'no connection'})',
+                  radio.isWifi
+                      ? 'Skipped: Wi-Fi ${radio.wifiSsid ?? ''} has no internet (Android could not validate it)'
+                      : 'Skipped: phone is not on Wi-Fi (${radio.connection})',
                   null,
                   null,
                   ...radio.csvValues,

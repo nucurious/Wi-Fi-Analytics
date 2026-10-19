@@ -103,6 +103,7 @@ class DsdsTracker {
   DateTime? _stableSince; // when that SIM/IP started
   DateTime? _lostAt; // when the IP disappeared
   bool _lostLogged = false;
+  bool _lostOnWifi = false;
   _Attempt? _attempt;
   int? _timedOutSlot; // a switch to this SIM already counted as failed (no IP in time)
 
@@ -115,7 +116,10 @@ class DsdsTracker {
     _sessionStart = t;
   }
 
-  List<DsdsEvent> update(Map<String, dynamic> raw, {DateTime? at}) {
+  /// [onWifi]: the phone's default network is Wi-Fi. Android often drops the
+  /// mobile data connection then; that is not a data outage, so it is not
+  /// logged as Data lost / Data interrupted.
+  List<DsdsEvent> update(Map<String, dynamic> raw, {DateTime? at, bool onWifi = false}) {
     final now = at ?? DateTime.now();
     final s = DsdsState(raw, now);
     current = s;
@@ -145,13 +149,16 @@ class DsdsTracker {
       if (prev != null && _lostAt == null) {
         _lostAt = now;
         _lostLogged = false;
+        _lostOnWifi = onWifi;
       }
+      if (onWifi) _lostOnWifi = true;
       final a = _attempt;
       if (a != null && now.difference(a.start) >= switchTimeout) {
         out.add(failed(a));
         _attempt = null;
         _timedOutSlot = a.to.slot;
-      } else if (a == null && prev != null && _lostAt != null && !_lostLogged && now.difference(_lostAt!) >= lostAfter) {
+      } else if (a == null && prev != null && _lostAt != null && !_lostLogged && !_lostOnWifi &&
+          now.difference(_lostAt!) >= lostAfter) {
         _lostLogged = true;
         out.add(DsdsEvent(now, 'Data lost', prev, s, _lostAt!, _secs(_stableSince, _lostAt!)));
       }
@@ -183,7 +190,7 @@ class DsdsTracker {
       out.add(DsdsEvent(now, 'IP change', prev, s, started, _secs(_stableSince, started)));
       _stable = s;
       _stableSince = now;
-    } else if (_lostAt != null) {
+    } else if (_lostAt != null && !_lostOnWifi) {
       out.add(DsdsEvent(now, 'Data interrupted', prev, s, _lostAt!, _secs(_stableSince, _lostAt!)));
     }
     _lostAt = null;
