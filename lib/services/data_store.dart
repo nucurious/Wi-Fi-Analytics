@@ -252,7 +252,7 @@ class DataStore {
     await outDir.create(recursive: true);
     final t = DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
-    final out = '${outDir.path}/${prefix}_all_${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}.xlsx';
+    final out = '${outDir.path}/$prefix.xlsx';
     final sources = [
       for (final e in sheetNames.entries) SheetSource(e.value, file(e.key).path),
     ];

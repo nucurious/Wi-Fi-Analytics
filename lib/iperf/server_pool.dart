@@ -47,8 +47,17 @@ final _rnd = Random();
 /// moves on to the next server in [publicServers]. UDP tests skip servers
 /// that don't accept UDP. [tried] holds "host:port" already used for this
 /// test; returns null when nothing is left.
-(String, int)? nextServer(String host, int port, {required bool busy, required bool udp, required Set<String> tried}) {
+(String, int)? nextServer(String host, int port,
+    {required bool busy, bool refused = false, required bool udp, required Set<String> tried}) {
   final current = publicServerFor(host);
+  // Your own server (e.g. the lab, ports 5201-5205): another port first when
+  // this one is busy or not listening.
+  if (current == null && (busy || refused)) {
+    final ports = port >= 5201 && port <= 5205 ? [for (var p = 5201; p <= 5205; p++) p] : [for (var i = 1; i <= 4; i++) port + i];
+    for (final p in ports) {
+      if (!tried.contains('$host:$p')) return (host, p);
+    }
+  }
   if (busy && current != null && current.portCount > 1 && (!udp || current.udp)) {
     for (var i = 1; i < current.portCount; i++) {
       final p = current.firstPort + (port - current.firstPort + i) % current.portCount;

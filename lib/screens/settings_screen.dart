@@ -333,7 +333,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           _section('File names'),
           Text('Now: ${widget.state.fileName()}', style: Theme.of(context).textTheme.bodyMedium),
-          Text('Field/Lab _ make _ model _ build (last 4) _ profile _ location _ IMEI (last 4)',
+          Text('Field/Lab _ make _ model _ build (last 4) _ profile _ location _ IMEI (last 4) _ date-time',
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(

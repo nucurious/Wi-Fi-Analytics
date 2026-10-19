@@ -109,6 +109,24 @@ class _TestScreenState extends State<TestScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: s.startLabTest,
+                icon: const Icon(Icons.science),
+                label: const Text('Start lab test', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Latency ($latencyBy) + one UDP downstream and one UDP upstream at the same time, '
+                '${_fmtNum(s.settings.udpMbps)} Mbps each, until you stop. Upstream uses the next port '
+                '(${s.settings.port + 1}). Files are named Lab_…',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           ],
         ),
       ),
@@ -336,6 +354,9 @@ class _LiveCard extends StatelessWidget {
                 Text(s.latencyPhase ? 'ms' : 'Mbps', style: const TextStyle(fontSize: 18)),
               ],
             ),
+            if (s.running && s.upMbps != null)
+              Text('Down ${s.currentMbps.toStringAsFixed(1)} Mbps  ·  Up ${s.upMbps!.toStringAsFixed(1)} Mbps',
+                  style: Theme.of(context).textTheme.titleSmall),
             if (s.running && s.latencyLive != null) _latencyLine(context, s),
             if (s.running && s.latencyProblem != null)
               Text(s.latencyProblem!, style: TextStyle(color: cs.error, fontSize: 13)),

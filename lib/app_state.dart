@@ -176,10 +176,10 @@ class Settings {
 enum UdpDirection { download, upload, both }
 
 /// How a test session was started.
-enum TestProfile { manual, drive, walk }
+enum TestProfile { manual, drive, walk, lab }
 
 extension TestProfileLabel on TestProfile {
-  String get label => switch (this) { TestProfile.manual => 'Manual', TestProfile.drive => 'Drive', TestProfile.walk => 'Walk' };
+  String get label => switch (this) { TestProfile.manual => 'Manual', TestProfile.drive => 'Drive', TestProfile.walk => 'Walk', TestProfile.lab => 'Lab' };
 }
 
 class AppState extends ChangeNotifier {
@@ -228,6 +228,7 @@ class AppState extends ChangeNotifier {
   final List<_TestWindow> _windows = [];
 
   BackgroundIperfClient? _client;
+  final _clients = <BackgroundIperfClient>{};
   bool _cancelSequence = false;
   StreamSubscription<Position>? _positionSub;
   Timer? _radioTimer;
@@ -398,6 +399,17 @@ class AppState extends ChangeNotifier {
         _udpConfig(settings.driveUdpDirection == 'upload' ? IperfDirection.upload : IperfDirection.download, duration: 0),
       ], p: TestProfile.drive);
 
+  /// Lab profile: latency all the time + one UDP downstream and one UDP
+  /// upstream at the same time, until Stop. iperf3 runs one test per port, so
+  /// the upstream uses the next port (5202 on the lab server). Files are named Lab_..._lab_...
+  Future<void> startLabTest() {
+    final up = _udpConfig(IperfDirection.upload, duration: 0);
+    return _runSequence([
+      _udpConfig(IperfDirection.download, duration: 0),
+      _onServer(up, up.host, up.port + 1),
+    ], p: TestProfile.lab);
+  }
+
   /// TCP download then upload.
   Future<void> runSpeedTest() => _runSequence([
         _tcpConfig(IperfDirection.download),
@@ -444,6 +456,9 @@ class AppState extends ChangeNotifier {
   void stop() {
     _cancelSequence = true;
     _client?.stop();
+    for (final c in List.of(_clients)) {
+      c.stop();
+    }
     notifyListeners();
   }
 
@@ -457,8 +472,12 @@ class AppState extends ChangeNotifier {
     }
     running = true;
     profile = p;
-    _keepGoing = p == TestProfile.drive || settings.repeatUntilStopped;
-    _trigger = p == TestProfile.drive ? 'Drive profile' : (settings.repeatUntilStopped ? 'Repeat' : 'Manual');
+    _keepGoing = p == TestProfile.drive || p == TestProfile.lab || settings.repeatUntilStopped;
+    _trigger = switch (p) {
+      TestProfile.drive => 'Drive profile',
+      TestProfile.lab => 'Lab profile',
+      _ => settings.repeatUntilStopped ? 'Repeat' : 'Manual',
+    };
     _cancelSequence = false;
     lastError = null;
     notifyListeners();
@@ -474,6 +493,11 @@ class AppState extends ChangeNotifier {
     try {
       while (true) {
         round++;
+        if (p == TestProfile.lab) {
+          // Both directions at once, each restarting by itself after a drop.
+          await Future.wait([for (final c in configs) _streamUntilStopped(c)]);
+          break;
+        }
         for (var i = 0; i < configs.length; i++) {
           if (_cancelSequence) break;
           if (i > 0) await Future.delayed(const Duration(milliseconds: 1500));
@@ -490,7 +514,12 @@ class AppState extends ChangeNotifier {
               : min(120, 10 * (1 << min(_failStreak - 1, 4)));
           await _countdown(s, 'Retrying');
         } else {
-          await _countdown(p == TestProfile.drive ? 1 : settings.repeatIntervalSeconds, 'Next round');
+          await _countdown(
+              switch (p) {
+                TestProfile.drive => 1,
+                _ => settings.repeatIntervalSeconds,
+              },
+              'Next round');
         }
         if (_cancelSequence) break;
       }
@@ -513,6 +542,26 @@ class AppState extends ChangeNotifier {
 
   /// Public server in use after a switch; later tests in the session start there.
   (String, int)? _activeServer;
+  final _activeByTest = <String, (String, int)>{}; // per test type (Lab runs two at once)
+
+  /// Lab profile upstream rate while both directions run (null otherwise).
+  double? upMbps;
+
+  /// Runs one continuous stream until Stop, restarting after drops.
+  Future<void> _streamUntilStopped(IperfConfig cfg) async {
+    var fails = 0;
+    while (!_cancelSequence) {
+      final before = recent.isEmpty ? null : recent.first;
+      await _runOne(cfg);
+      if (_cancelSequence) break;
+      final ok = recent.isNotEmpty && !identical(recent.first, before) && recent.first.error == null;
+      fails = ok ? 0 : fails + 1;
+      final wait = min(15, 3 * (1 << min(max(fails - 1, 0), 3)));
+      for (var i = 0; i < wait && !_cancelSequence; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+  }
 
   static IperfConfig _onServer(IperfConfig c, String host, int port) => IperfConfig(
         host: host,
@@ -532,7 +581,7 @@ class AppState extends ChangeNotifier {
   Future<void> _runOne(IperfConfig base) async {
     final udp = base.protocol == IperfProtocol.udp;
     var cfg = base;
-    final active = _activeServer;
+    final active = _activeByTest[base.label] ?? (profile == TestProfile.lab ? null : _activeServer);
     if (settings.rotateServers && active != null && (!udp || (publicServerFor(active.$1)?.udp ?? true))) {
       cfg = _onServer(base, active.$1, active.$2);
     }
@@ -543,7 +592,11 @@ class AppState extends ChangeNotifier {
       waitingText = null;
       if (failed == null) return;
       final next = attempt < 7 && !_cancelSequence
-          ? nextServer(cfg.host, cfg.port, busy: failed.toLowerCase().contains('busy'), udp: udp, tried: tried)
+          ? nextServer(cfg.host, cfg.port,
+              busy: failed.toLowerCase().contains('busy'),
+              refused: failed.toLowerCase().contains('refused'),
+              udp: udp,
+              tried: tried)
           : null;
       store.addFailure([
         DateTime.now().toUtc().toIso8601String(),
@@ -559,6 +612,7 @@ class AppState extends ChangeNotifier {
       ]);
       if (next == null) {
         _activeServer = null; // next round starts from the configured server again
+        _activeByTest.remove(base.label);
         lastError = _cancelSequence ? null : '${cfg.label}: $failed (no other server could run the test)';
         if (_keepGoing) {
           _failStreak++;
@@ -569,6 +623,7 @@ class AppState extends ChangeNotifier {
         return;
       }
       _activeServer = next;
+      _activeByTest[base.label] = next;
       waitingText = '${cfg.host}:${cfg.port} could not run the test, switching to ${next.$1}:${next.$2}';
       notifyListeners();
       cfg = _onServer(cfg, next.$1, next.$2);
@@ -588,11 +643,17 @@ class AppState extends ChangeNotifier {
     final startRadio = radio;
     final site = activeSite;
 
-    phase = cfg.label;
-    currentMbps = 0;
-    elapsed = 0;
-    plannedSeconds = cfg.durationSeconds;
-    liveSeries.clear();
+    // Lab profile: the upstream runs alongside the downstream, which owns the main display.
+    final secondary = profile == TestProfile.lab && cfg.direction == IperfDirection.upload;
+    if (secondary) {
+      upMbps = 0;
+    } else {
+      phase = profile == TestProfile.lab ? 'UDP down + up' : cfg.label;
+      currentMbps = 0;
+      elapsed = 0;
+      plannedSeconds = cfg.durationSeconds;
+      liveSeries.clear();
+    }
     final samples = <double>[];
     notifyListeners();
 
@@ -601,13 +662,18 @@ class AppState extends ChangeNotifier {
 
     final client = BackgroundIperfClient(cfg);
     _client = client;
+    _clients.add(client);
     final sub = client.intervals.listen((iv) {
       if (samples.isEmpty) waitingText = null; // clear "switching to ..." once data flows
-      currentMbps = iv.mbps;
-      elapsed = iv.elapsedSeconds;
-      liveSeries.add(iv.mbps);
       samples.add(iv.mbps);
-      if (liveSeries.length > 600) liveSeries.removeAt(0);
+      if (secondary) {
+        upMbps = iv.mbps;
+      } else {
+        currentMbps = iv.mbps;
+        elapsed = iv.elapsedSeconds;
+        liveSeries.add(iv.mbps);
+        if (liveSeries.length > 600) liveSeries.removeAt(0);
+      }
       final now = DateTime.now();
       store.addSample([
         testId,
@@ -675,6 +741,8 @@ class AppState extends ChangeNotifier {
     } finally {
       await sub.cancel();
       await client.dispose();
+      _clients.remove(client);
+      if (secondary) upMbps = null;
     }
     if (setupError != null) {
       _windows.remove(window);
@@ -901,15 +969,19 @@ class AppState extends ChangeNotifier {
     return n.length >= 3 ? n.substring(0, 3).toUpperCase() : 'NOLOC';
   }
 
-  /// Output file name, e.g. Field_Samsung_S25_ylz1_walk_DAL_3245.
-  String fileName([TestProfile? p]) {
+  /// Output file name, e.g. Field_Samsung_S25_ylz1_walk_DAL_3245_20261019-1123 (session start).
+  String fileName([TestProfile? p, DateTime? at]) {
     final prof = p ?? profile;
-    final lab = inLab;
+    final lab = prof == TestProfile.lab || inLab;
     final profileWord = switch (prof) {
       TestProfile.drive => 'drive',
       TestProfile.walk => 'walk',
-      TestProfile.manual => lab ? 'lab' : 'stationary',
+      TestProfile.lab => 'lab',
+      TestProfile.manual => 'stationary',
     };
+    final t = at ?? DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final stamp = '${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}';
     final imei = settings.imeiLast4.trim().isNotEmpty
         ? settings.imeiLast4.trim()
         : (device['imeiLast4'] ?? 'xxxx').toString();
@@ -921,6 +993,7 @@ class AppState extends ChangeNotifier {
       profileWord,
       locationLabel,
       imei,
+      stamp,
     ].map(fileSafe).join('_');
   }
 
@@ -933,6 +1006,7 @@ class AppState extends ChangeNotifier {
     _sessionStart = DateTime.now();
     _sessionProfile = p;
     _activeServer = null;
+    _activeByTest.clear();
     _sessionOffsets = await mailer.markStart();
   }
 
@@ -943,7 +1017,7 @@ class AppState extends ChangeNotifier {
     _sessionOffsets = null;
     if (start == null || offsets == null || !settings.emailResults) return;
     final end = DateTime.now();
-    final prefix = fileName(_sessionProfile);
+    final prefix = fileName(_sessionProfile, start);
     final tests = recent.where((r) => !r.start.isBefore(start)).toList().reversed.toList();
     String two(int n) => n.toString().padLeft(2, '0');
     final dur = end.difference(start);
@@ -1207,6 +1281,9 @@ class AppState extends ChangeNotifier {
     _flushTimer?.cancel();
     _emailTimer?.cancel();
     _client?.stop();
+    for (final c in List.of(_clients)) {
+      c.stop();
+    }
     _probe?.stop();
     _latencyFlushTimer?.cancel();
     super.dispose();

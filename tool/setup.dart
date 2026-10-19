@@ -12,7 +12,7 @@
 
 import 'dart:io';
 
-const appName = 'WiFi Analytics';
+const appName = 'Wi-Fi_Analytics_v1.3';
 
 void main() {
   final bundleId = Platform.environment['BUNDLE_ID']?.trim();

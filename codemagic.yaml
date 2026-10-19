@@ -24,9 +24,11 @@ workflows:
       - name: Apply WiFi Analytics settings
         script: dart run tool/setup.dart
       - name: Build APK
-        script: flutter build apk --release --build-number=$BUILD_NUMBER
+        script: |
+          flutter build apk --release --build-name=1.3.0 --build-number=$BUILD_NUMBER
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Wi-Fi_Analytics_v1.3.apk
     artifacts:
-      - build/app/outputs/flutter-apk/app-release.apk
+      - build/app/outputs/flutter-apk/Wi-Fi_Analytics_v1.3.apk
 
   # ---------------------------------------------------------------- iPhone -> TestFlight
   ios-testflight:

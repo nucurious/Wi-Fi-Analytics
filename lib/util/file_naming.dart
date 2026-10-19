@@ -1,9 +1,9 @@
 import 'dart:math';
 
 /// Output file names:
-///   Field|Lab _ Make _ Model _ build (last 4) _ profile _ Location _ IMEI (last 4)
-///   e.g. Field_Samsung_S25_ylz1_walk_DAL_3245
-///        Lab_iPhone_17ProMax_26.5.2_stationary_DEN_5678
+///   Field|Lab _ Make _ Model _ build (last 4) _ profile _ Location _ IMEI (last 4) _ date-time
+///   e.g. Field_Samsung_S25_ylz1_walk_DAL_3245_20261019-1123
+///        Lab_iPhone_17ProMax_26.5.2_lab_DEN_5678_20261019-1123
 
 /// "Samsung", "Pixel", "iPhone", or the OEM name capitalized.
 String makeLabel(Map<String, dynamic> device) {

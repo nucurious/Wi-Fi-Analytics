@@ -21,7 +21,7 @@ class WifiAnalyticsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     const seed = Color(0xFF0B7A75);
     return MaterialApp(
-      title: 'WiFi Analytics',
+      title: 'Wi-Fi_Analytics_v1.3',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: seed),
