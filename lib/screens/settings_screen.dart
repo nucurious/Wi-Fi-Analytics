@@ -347,7 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: _env,
             decoration: const InputDecoration(labelText: 'Field or Lab'),
             items: const [
-              DropdownMenuItem(value: 'auto', child: Text('Auto (Lab on lab Wi-Fi, lab site or at the lab)')),
+              DropdownMenuItem(value: 'auto', child: Text('Auto: Lab = Lab profile, or a stationary test on lab Wi-Fi / lab site')),
               DropdownMenuItem(value: 'field', child: Text('Field')),
               DropdownMenuItem(value: 'lab', child: Text('Lab')),
             ],

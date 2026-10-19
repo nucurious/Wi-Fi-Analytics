@@ -316,6 +316,15 @@ class AppState extends ChangeNotifier {
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
     ).listen((p) {
       position = p;
+      // Lab means stationary: note if the phone moved during this session.
+      final from = _sessionStartPos;
+      if (_sessionStart != null && from == null) {
+        _sessionStartPos = p;
+      } else if (from != null && !_sessionMoved &&
+          (Geolocator.distanceBetween(from.latitude, from.longitude, p.latitude, p.longitude) > 50 ||
+              (p.speed > 1.5 && p.speedAccuracy < 1.0))) {
+        _sessionMoved = true;
+      }
       notifyListeners();
     }, onError: (Object e) {
       locationProblem = 'GPS error: $e';
@@ -609,7 +618,7 @@ class AppState extends ChangeNotifier {
       tried.add('${cfg.host}:${cfg.port}');
       final failed = await _runAttempt(cfg, skipSetupFailure: settings.rotateServers);
       waitingText = null;
-      if (failed == null) return;
+      if (failed == null || _cancelSequence) return;
       final next = attempt < 7 && !_cancelSequence
           ? nextServer(cfg.host, cfg.port,
               busy: failed.toLowerCase().contains('busy'),
@@ -714,6 +723,7 @@ class AppState extends ChangeNotifier {
     try {
       final r = await client.run();
       final stats = SpeedStats.of(samples);
+      if (r.stoppedByUser && samples.isEmpty) setupError = 'stopped'; // Stop before any data
       record = TestRecord(
         testId: testId,
         type: cfg.label,
@@ -738,7 +748,9 @@ class AppState extends ChangeNotifier {
           : e is SocketException
               ? 'Network error: ${e.osError?.message ?? e.message}'
               : e.toString();
-      if (skipSetupFailure && samples.isEmpty && !_cancelSequence) {
+      if (samples.isEmpty && _cancelSequence) {
+        setupError = 'stopped'; // you pressed Stop before any data: not a result
+      } else if (skipSetupFailure && samples.isEmpty) {
         setupError = msg;
       } else {
         lastError = '${cfg.label}: $msg';
@@ -955,20 +967,28 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------------ email
 
-  /// Lab when chosen in Settings, or (Auto) when on a Wi-Fi network or site
-  /// with "lab" in its name, or within 300 m of the Denver lab.
-  bool get inLab {
+  Position? _sessionStartPos;
+  bool _sessionMoved = false; // moved > 50 m (or walking speed) since the session started
+
+  /// "Lab" only for stationary testing in the lab: the Lab profile, or a
+  /// manual (stationary) test on a Wi-Fi network or site with "lab" in its
+  /// name while the phone stays put. Walk and Drive are always Field.
+  /// Settings > Field or Lab overrides this.
+  bool labFor(TestProfile p) {
     switch (settings.testEnvironment) {
       case 'lab':
         return true;
       case 'field':
         return false;
     }
-    if ((radio.wifiSsid ?? '').toLowerCase().contains('lab')) return true;
-    if ((activeSite?.name ?? '').toLowerCase().contains('lab')) return true;
-    final p = position;
-    return p != null && (p.latitude - 39.6004).abs() < 0.0027 && (p.longitude - -104.8912).abs() < 0.0035;
+    if (p == TestProfile.lab) return true;
+    if (p == TestProfile.walk || p == TestProfile.drive) return false;
+    if (_sessionMoved) return false;
+    return (radio.wifiSsid ?? '').toLowerCase().contains('lab') ||
+        (activeSite?.name ?? '').toLowerCase().contains('lab');
   }
+
+  bool get inLab => labFor(profile);
 
   /// Market code: Settings override, else nearest city to the site, else to GPS.
   String get locationLabel {
@@ -989,10 +1009,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// Output file name, e.g. Field_Samsung_S25_ylz1_walk_DAL_3245_20261019-1123 (session start).
-  String fileName([TestProfile? p, DateTime? at]) {
+  /// [export]: a Data-tab export of all logs, named ..._all_... instead of a profile.
+  String fileName([TestProfile? p, DateTime? at, bool export = false]) {
     final prof = p ?? profile;
-    final lab = prof == TestProfile.lab || inLab;
-    final profileWord = switch (prof) {
+    final lab = export ? settings.testEnvironment == 'lab' : labFor(prof);
+    final profileWord = export ? 'all' : switch (prof) {
       TestProfile.drive => 'drive',
       TestProfile.walk => 'walk',
       TestProfile.lab => 'lab',
@@ -1016,7 +1037,8 @@ class AppState extends ChangeNotifier {
     ].map(fileSafe).join('_');
   }
 
-  String get devicePrefix => fileName();
+  /// Data-tab export of everything logged: Field/Lab_..._all_..._date-time.
+  String get devicePrefix => fileName(null, null, true);
 
   String? get emailStatus => mailer.lastStatus;
   int get emailPending => mailer.pendingCount();
@@ -1024,6 +1046,8 @@ class AppState extends ChangeNotifier {
   Future<void> _beginSession(TestProfile p) async {
     _sessionStart = DateTime.now();
     _sessionProfile = p;
+    _sessionStartPos = position;
+    _sessionMoved = false;
     _activeServer = null;
     _activeByTest.clear();
     _sessionOffsets = await mailer.markStart();
@@ -1166,6 +1190,23 @@ class AppState extends ChangeNotifier {
             for (var i = 0; i < configs.length && !_cancelSequence; i++) {
               if (i > 0) await Future.delayed(const Duration(milliseconds: 1500));
               if (_cancelSequence) break;
+              // Walk tests measure Wi-Fi: skip (and log) if the phone is on cellular now.
+              await _pollRadio();
+              if (!radio.isWifi) {
+                store.addFailure([
+                  DateTime.now().toUtc().toIso8601String(),
+                  _local(DateTime.now()),
+                  configs[i].label,
+                  profile.label,
+                  configs[i].host,
+                  configs[i].port,
+                  'Skipped: phone is not on Wi-Fi (${radio.connection ?? 'no connection'})',
+                  null,
+                  null,
+                  ...radio.csvValues,
+                ]);
+                continue;
+              }
               await _runOne(configs[i]);
             }
             lastTest = DateTime.now();
