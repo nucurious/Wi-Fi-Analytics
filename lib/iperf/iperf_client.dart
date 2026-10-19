@@ -132,9 +132,34 @@ class IperfClient {
   final List<int> _tcpBytes = [];
 
   /// Ends the test early. Results up to this point are still collected.
+  /// Before data flows (connecting, handshake) it aborts at once.
   void stop() {
     _stoppedByUser = true;
     if (!_stopSignal.isCompleted) _stopSignal.complete();
+    _connecting?.cancel();
+    if (!_started) {
+      _control?.destroy(); // pending handshake reads fail straight away
+    }
+  }
+
+  ConnectionTask<Socket>? _connecting;
+
+  /// After Stop, wait at most a few seconds for the server's final results.
+  Duration get _timeout => _stoppedByUser ? const Duration(seconds: 3) : _ioTimeout;
+
+  /// Socket.connect that Stop can cancel.
+  Future<Socket> _connect(InternetAddress address, int port) async {
+    if (_stoppedByUser) throw IperfException('Stopped');
+    final task = await Socket.startConnect(address, port);
+    _connecting = task;
+    try {
+      return await task.socket.timeout(const Duration(seconds: 10), onTimeout: () {
+        task.cancel();
+        throw const SocketException('Connection timed out');
+      });
+    } finally {
+      _connecting = null;
+    }
   }
 
   bool _started = false;
@@ -176,7 +201,7 @@ class IperfClient {
 
     // 1. Control connection.
     try {
-      _control = await Socket.connect(address, config.port, timeout: const Duration(seconds: 10));
+      _control = await _connect(address, config.port);
     } on SocketException catch (e) {
       throw IperfException(
           'Could not reach ${config.host}:${config.port} (${e.osError?.message ?? e.message}).');
@@ -216,7 +241,7 @@ class IperfClient {
       if (udp) {
         _udpStreams.add(await _UdpStream.open(address, config.port));
       } else {
-        final s = await Socket.connect(address, config.port, timeout: const Duration(seconds: 10));
+        final s = await _connect(address, config.port);
         s.add(cookie);
         await s.flush();
         _tcpSockets.add(s);
@@ -283,7 +308,7 @@ class IperfClient {
     final elapsed = stopwatch.elapsedMicroseconds / 1e6;
 
     if (serverEnded) {
-      final st = await _reader!.readByte(_ioTimeout);
+      final st = await _reader!.readByte(_timeout);
       if (st == _serverTerminate || st == _serverError) {
         throw IperfException('The server ended the test early.');
       }
@@ -459,7 +484,7 @@ class IperfClient {
   }
 
   Future<void> _expectState(int expected) async {
-    final st = await _reader!.readByte(_ioTimeout);
+    final st = await _reader!.readByte(_timeout);
     if (st == expected) return;
     if (st == _accessDenied) throw _ServerBusy();
     if (st == _serverError) {
@@ -480,9 +505,9 @@ class IperfClient {
   }
 
   Future<Map<String, dynamic>> _recvJson() async {
-    final lenBytes = await _reader!.read(4, _ioTimeout);
+    final lenBytes = await _reader!.read(4, _timeout);
     final len = ByteData.sublistView(lenBytes).getUint32(0);
-    final body = await _reader!.read(len, _ioTimeout);
+    final body = await _reader!.read(len, _timeout);
     return jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
   }
 

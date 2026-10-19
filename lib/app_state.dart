@@ -675,8 +675,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// Stops the running test and any remaining tests in the sequence.
+  /// True from Stop until the test has wound down (UI shows "Stopping…").
+  bool get stopping => running && _cancelSequence;
+
   void stop() {
     _cancelSequence = true;
+    waitingText = 'Stopping…';
     _client?.stop();
     for (final c in List.of(_clients)) {
       c.stop();
@@ -942,22 +946,40 @@ class AppState extends ChangeNotifier {
           : e is SocketException
               ? 'Network error: ${e.osError?.message ?? e.message}'
               : e.toString();
+      final stoppedMidTest = samples.isNotEmpty && _cancelSequence;
       if (samples.isEmpty && _cancelSequence) {
         setupError = 'stopped'; // you pressed Stop before any data: not a result
       } else if (skipSetupFailure && samples.isEmpty) {
         setupError = msg;
-      } else {
+      } else if (!stoppedMidTest) {
         lastError = '${cfg.label}: $msg';
       }
-      record = TestRecord(
-        testId: testId,
-        type: cfg.label,
-        start: start,
-        durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
-        error: msg,
-      );
-      if (setupError != null) {
-        // The caller switches server; this attempt is not a result.
+      final stats = SpeedStats.of(samples);
+      record = stoppedMidTest
+          // Stopped, and the server didn't send its final numbers within 3 s:
+          // keep the test, with throughput from the per-second samples.
+          ? TestRecord(
+              testId: testId,
+              type: cfg.label,
+              start: start,
+              durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
+              mbps: samples.reduce((a, b) => a + b) / samples.length,
+              stoppedByUser: true,
+              minMbps: stats?.min,
+              maxMbps: stats?.max,
+              medianMbps: stats?.median,
+              p10Mbps: stats?.p10,
+              p90Mbps: stats?.p90,
+            )
+          : TestRecord(
+              testId: testId,
+              type: cfg.label,
+              start: start,
+              durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
+              error: msg,
+            );
+      if (setupError != null || stoppedMidTest) {
+        // Not a failure: switching server, or the user stopped.
       } else if (_keepGoing) {
         _failStreak++; // keep going: retry with back-off
       } else {
@@ -977,7 +999,7 @@ class AppState extends ChangeNotifier {
     // Latency under load for this test (packets still in flight settle first).
     window.end = DateTime.now();
     final probe = _probe;
-    if (probe != null) await Future.delayed(probe.timeout);
+    if (probe != null && !_cancelSequence) await Future.delayed(probe.timeout);
     _windows.remove(window);
     record = record.withLatency(window.acc.isEmpty ? null : window.acc.stats(), probe == null ? null : latencyLabel,
         apInfo: startRadio.apSummary);
@@ -1149,7 +1171,7 @@ class AppState extends ChangeNotifier {
   Future<void> _stopLatency() async {
     final probe = _probe;
     if (probe == null) return;
-    await probe.stop(); // waits for in-flight packets, reports the rest lost
+    await probe.stop(quick: _cancelSequence); // waits for in-flight packets, reports the rest lost
     await _probeSub?.cancel();
     _probeSub = null;
     _latencyFlushTimer?.cancel();

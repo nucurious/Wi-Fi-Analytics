@@ -112,7 +112,8 @@ abstract class LatencyProbe {
   Duration get timeout;
   Stream<ProbeResult> get results;
   Future<void> start();
-  Future<void> stop();
+  /// [quick]: the user pressed Stop; don't wait the full timeout for late replies.
+  Future<void> stop({bool quick = false});
 
   static Future<InternetAddress> resolve(String host) async {
     final parsed = InternetAddress.tryParse(host);
@@ -258,11 +259,11 @@ class TwampLightProbe implements LatencyProbe {
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop({bool quick = false}) async {
     _sendTimer?.cancel();
     _sendTimer = null;
     // Give in-flight packets a chance to come back, then count the rest lost.
-    await Future.delayed(timeout);
+    await Future.delayed(quick ? const Duration(milliseconds: 300) : timeout);
     _sweepTimer?.cancel();
     for (final e in _pending.entries.toList()) {
       _controller.add(ProbeResult(e.key, e.value.$2, null));
@@ -358,11 +359,11 @@ class PingProbe implements LatencyProbe {
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop({bool quick = false}) async {
     if (_stopping) return;
     _stopping = true;
     // Let the last replies arrive, then settle every packet sent so far.
-    await Future.delayed(timeout);
+    await Future.delayed(quick ? const Duration(milliseconds: 300) : timeout);
     _process?.kill();
     _sweepTimer?.cancel();
     _settle(all: true);

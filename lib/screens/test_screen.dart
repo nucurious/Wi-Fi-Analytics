@@ -64,9 +64,11 @@ class _TestScreenState extends State<TestScreen> {
         height: 56,
         child: FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-          onPressed: s.stop,
-          icon: const Icon(Icons.stop),
-          label: const Text('Stop test', style: TextStyle(fontSize: 18)),
+          onPressed: s.stopping ? null : s.stop,
+          icon: s.stopping
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.stop),
+          label: Text(s.stopping ? 'Stopping…' : 'Stop test', style: const TextStyle(fontSize: 18)),
         ),
       );
     }
