@@ -1284,7 +1284,7 @@ class AppState extends ChangeNotifier {
     // Debug app: logcat parts stay in the logcat folder (Data > Share logcat)
     // unless they are emailed with the session below.
     final logcatFiles = logcat.running ? await logcat.stop() : <File>[];
-    if (start == null || offsets == null || !settings.emailResults) return;
+    if (start == null || offsets == null) return;
     final end = DateTime.now();
     final prefix = fileName(_sessionProfile, start);
     final tests = recent.where((r) => !r.start.isBefore(start)).toList().reversed.toList();
@@ -1336,7 +1336,10 @@ class AppState extends ChangeNotifier {
           '(sheets DSDS transitions and Transition performance). SIMs: ${dsds.current?.sims ?? '-'}');
     }
     try {
+      final runDir = Directory('${(await runsRoot()).path}/$prefix');
       final queued = await mailer.queueSession(
+        runDir: runDir,
+        email: settings.emailResults,
         offsets: offsets,
         filePrefix: prefix,
         subject: '$kAppName: $prefix',
@@ -1344,11 +1347,43 @@ class AppState extends ChangeNotifier {
         extraFiles: logcatFiles,
         extraSheets: [if (dsdsSheet != null) dsdsSheet],
       );
-      if (queued) unawaited(sendPendingEmail());
+      if (queued) {
+        // logcat's session_info.txt belongs with the run too.
+        final info = File('${logcat.sessionDir?.path ?? ''}/session_info.txt');
+        if (logcatFiles.isNotEmpty && await info.exists()) await info.copy('${runDir.path}/logcat_session_info.txt');
+        lastRun = runDir;
+        notifyListeners();
+        if (settings.emailResults) unawaited(sendPendingEmail());
+      }
     } catch (e) {
       mailer.lastStatus = 'Could not prepare email: $e';
       notifyListeners();
     }
+  }
+
+  /// One folder per test run: workbook, summary, logcat (debug app). On Android
+  /// in the app's external folder so it can be pulled with adb:
+  ///   /sdcard/Android/data/<package>/files/runs/<run name>/
+  Future<Directory> runsRoot() async {
+    Directory? ext;
+    if (Platform.isAndroid) {
+      try {
+        ext = await getExternalStorageDirectory();
+      } catch (_) {}
+    }
+    final d = Directory('${(ext ?? store.directory).path}/runs');
+    await d.create(recursive: true);
+    return d;
+  }
+
+  /// Folder of the last finished test run (Test screen: Export this run).
+  Directory? lastRun;
+
+  Future<List<Directory>> testRuns() async {
+    final root = await runsRoot();
+    final dirs = (await root.list().toList()).whereType<Directory>().toList();
+    dirs.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+    return dirs;
   }
 
   Future<void> sendPendingEmail() async {

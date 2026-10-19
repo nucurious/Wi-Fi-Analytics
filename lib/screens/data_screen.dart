@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../app_config.dart';
 import '../app_state.dart';
 import '../services/logcat_recorder.dart';
+import 'share_run.dart';
 import '../services/data_store.dart';
 
 class DataScreen extends StatefulWidget {
@@ -39,6 +40,7 @@ class _DataScreenState extends State<DataScreen> {
       counts[f] = await store.rowCount(f);
     }
     if (mounted) setState(() => _counts = counts);
+    await _loadRuns();
   }
 
   /// Excel workbook (one sheet per log) or compressed CSVs, via the share sheet.
@@ -107,6 +109,49 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   bool? _logcatAccess;
+  List<Directory> _runs = [];
+
+  Future<void> _loadRuns() async {
+    final r = await widget.state.testRuns();
+    if (mounted) setState(() => _runs = r);
+  }
+
+  Widget _runsCard(BuildContext context) {
+    final shown = _runs.take(30).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(child: Text('Test runs', style: Theme.of(context).textTheme.titleMedium)),
+              IconButton(onPressed: _loadRuns, icon: const Icon(Icons.refresh), tooltip: 'Refresh'),
+            ]),
+            Text(
+              'One folder per test run: Excel workbook, summary${kDebugApp ? ', logcat' : ''}. '
+              'Tap a run to export it, or on a computer: adb pull /sdcard/Android/data/$appPackage/files/runs',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (shown.isEmpty)
+              const Padding(padding: EdgeInsets.only(top: 8), child: Text('No runs yet. Each finished test session adds one.')),
+            for (final d in shown)
+              Builder(
+                builder: (c) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(folderName(d), style: const TextStyle(fontSize: 13)),
+                  subtitle: Text(folderSummary(d)),
+                  trailing: const Icon(Icons.ios_share),
+                  onTap: () => shareRun(c, d),
+                ),
+              ),
+            if (_runs.length > shown.length) Text('… ${_runs.length - shown.length} older runs (adb pull to get all)'),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _checkLogcat() async {
     final ok = await LogcatRecorder.hasFullAccess();
@@ -197,6 +242,8 @@ class _DataScreenState extends State<DataScreen> {
               IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh counts'),
             ],
           ),
+          const SizedBox(height: 8),
+          _runsCard(context),
           const SizedBox(height: 8),
           if (kDebugApp) ...[_logcatCard(context), const SizedBox(height: 8)],
           Card(

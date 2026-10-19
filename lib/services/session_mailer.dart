@@ -51,20 +51,21 @@ class SessionMailer {
     return m;
   }
 
-  /// Writes this session's rows to a new outbox folder. Returns false if the
-  /// session produced no rows.
+  /// Writes this session's workbook (and extra files) into the test-run folder
+  /// [runDir], and, if [email], queues a copy in the outbox. Returns false if
+  /// the session produced no rows.
   Future<bool> queueSession({
     required Map<String, int> offsets,
     required String filePrefix,
     required String subject,
     required String body,
+    required Directory runDir,
+    bool email = true,
     List<File> extraFiles = const [], // e.g. logcat .txt.gz parts (always emailed; copied)
     List<SheetSource> extraSheets = const [], // e.g. the DSDS summary, built for this session
   }) async {
     await store.flush();
-    // Same name for every session of a day, so each gets its own outbox folder.
-    final t = DateTime.now();
-    final dir = Directory('${outbox.path}/${filePrefix}__${t.millisecondsSinceEpoch}');
+    final dir = runDir;
     await dir.create(recursive: true);
 
     // Byte range of this session in each log (header added back for Excel).
@@ -112,7 +113,18 @@ class SessionMailer {
       // Copy: the originals stay on the phone for adb pull / Share logcat.
       if (await f.exists()) await f.copy('${dir.path}/${f.uri.pathSegments.last}');
     }
-    await File('${dir.path}/message.json').writeAsString(jsonEncode({'subject': subject, 'body': body}));
+    await File('${dir.path}/summary.txt').writeAsString(body);
+    if (email) {
+      // Same name for every session of a day, so each gets its own outbox folder.
+      final out = Directory('${outbox.path}/${filePrefix}__${DateTime.now().millisecondsSinceEpoch}');
+      await out.create(recursive: true);
+      for (final f in (await dir.list().toList()).whereType<File>()) {
+        if (f.path.endsWith('.xlsx') || f.path.endsWith('.gz')) {
+          await f.copy('${out.path}/${f.uri.pathSegments.last}');
+        }
+      }
+      await File('${out.path}/message.json').writeAsString(jsonEncode({'subject': subject, 'body': body}));
+    }
     return true;
   }
 

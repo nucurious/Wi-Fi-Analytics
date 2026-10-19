@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../app_config.dart';
 import '../app_state.dart';
+import 'share_run.dart';
 import '../models.dart';
 
 class TestScreen extends StatefulWidget {
@@ -73,6 +74,19 @@ class _TestScreenState extends State<TestScreen> {
       );
     }
     final latencyBy = s.settings.twampHost.isNotEmpty ? 'TWAMP' : 'ping';
+    final run = s.lastRun;
+    final exportRun = run == null
+        ? const SizedBox.shrink()
+        : Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Builder(
+              builder: (c) => OutlinedButton.icon(
+                onPressed: () => shareRun(c, run),
+                icon: const Icon(Icons.ios_share),
+                label: Text('Export this run: ${folderName(run)}', overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          );
     final profiles = Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -201,7 +215,7 @@ class _TestScreenState extends State<TestScreen> {
         ),
       ),
     );
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [profiles, const SizedBox(height: 12), manual]);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [exportRun, profiles, const SizedBox(height: 12), manual]);
   }
 }
 
