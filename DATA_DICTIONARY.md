@@ -10,8 +10,10 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `gps_track.csv` | Second while the app is open (if enabled in Settings) |
 | `sites.csv` | Saved site |
 | `server_failures.csv` | Test that could not start (server switched), or walk test skipped off Wi-Fi |
+| `geofence.csv` | Geofence crossing (Entered / Exited / Inside at start) |
+| `dsds_transitions.csv` | Dual-SIM data transition (Android) |
 
-The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Sites. File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
+The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Sites; the session email also has a DSDS summary sheet (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
 Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 
@@ -22,7 +24,8 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 1.0 | Oct 17, 2026 | dde7a99 | First data dictionary. |
 | 1.1 | Oct 18, 2026 | a1f1e21, 4dd5252 | Latency columns; profile and trigger columns. |
 | 1.2 | Oct 19, 2026 | f33eaac | server_failures.csv. |
-| 2.0 | Oct 19, 2026 | this update | Workbook sheets and file names; Lab profile; walk tests skipped off Wi-Fi; version tables. |
+| 2.0 | Oct 19, 2026 | 78ad25f | Workbook sheets and file names; Lab profile; walk tests skipped off Wi-Fi; version tables. |
+| 2.1 | Oct 19, 2026 | 994535f | geofence.csv, dsds_transitions.csv, DSDS summary, data SIM radio columns, site geofence radius. |
 
 ## App and script versions
 
@@ -31,9 +34,11 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | Wi-Fi Analytics (Android) | 1.0 | Oct 17, 2026 | dde7a99 | First version in the repository: iperf3 TCP/UDP, ping latency, GPS and radio logging, sites, CSV export. |
 | Wi-Fi Analytics (Android) | 1.1 | Oct 18, 2026 | a1f1e21 to 72ca927 (Codemagic build 8) | TWAMP latency during every test; Wi-Fi generation and BSSID; long runs; Drive and Walk profiles; email when a session stops; Excel workbook; screen-freeze fixes. |
 | Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 (current) | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
-| Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 (current) | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
-| Wi-Fi Analytics (iPhone) | 1.3 (code) | Oct 19, 2026 | 1c9fce9 | Same code as Android v1.3. Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
+| Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334, 994535f (current) | Geofence: every saved site is a fence (radius per site), Entered / Exited logged with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches, IP changes and data gaps with IP owner on a DSDS transitions sheet, plus a DSDS summary per session; data SIM and cellular IP added to every row. |
+| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334, 994535f (current) | Same new features as 1.3.1, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.1 (code) | Oct 19, 2026 | 994535f | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
@@ -112,7 +117,7 @@ Written while a test runs, if **Measure latency during every test** is on, and d
 
 ## sites.csv
 
-site_id, site_name, notes, latitude, longitude, gps_accuracy_m, created_utc
+site_id, site_name, notes, latitude, longitude, gps_accuracy_m, created_utc, geofence_radius_m
 
 ## GPS columns
 
@@ -154,6 +159,8 @@ site_id, site_name, notes, latitude, longitude, gps_accuracy_m, created_utc
 | wifi_freq_mhz, wifi_band, wifi_channel | Wi-Fi frequency, band (2.4/5/6 GHz), channel |
 | wifi_standard | Wi-Fi 4/5/6/7 (Android 11+) |
 | wifi_link_mbps, wifi_tx_mbps, wifi_rx_mbps | Negotiated link rates |
+| data_sim_slot, data_carrier, data_plmn | SIM carrying mobile data (1-based slot), its carrier name and MCC+MNC (Android) |
+| cell_iface, cell_ipv4, cell_ipv6 | Cellular data interface (e.g. rmnet_data2) and its addresses, comma-separated, no link-local (Android) |
 
 In 5G NSA, Android often reports the NR signal (nr_ss_*) without NR cell identity, because the phone is anchored on the LTE cell.
 
@@ -173,3 +180,45 @@ the app moved to the next port of the same server (if busy) or the next public s
 | error | Why it failed |
 | switched_to, switched_port | Where the app tried next (blank = nothing left; test skipped this round) |
 | radio columns | Same as the Tests sheet |
+
+## geofence.csv (sheet "Geofence")
+
+Every saved site with coordinates is a circular geofence (sites.csv `geofence_radius_m`, default 100 m). Checked on every GPS fix while the app is open; fixes less accurate than 50 m are ignored.
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | When the crossing was detected |
+| event | Entered (within the radius), Exited (10 m beyond the radius), Inside at start (app started inside the fence) |
+| site_id, site_name, radius_m | The fence |
+| distance_m | Distance from the site center at that fix |
+| time_inside_s | On Exited: time since Entered |
+| latitude, longitude, gps_accuracy_m, speed_kmh, heading_deg | GPS fix |
+| profile, test_running, test_type | What was running |
+| radio columns | Same as the Tests sheet (Wi-Fi, cell, data SIM) |
+
+## dsds_transitions.csv (sheet "DSDS transitions", Android)
+
+The data SIM and cellular IPs are read every second.
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | When the new data path was up (or the loss confirmed) |
+| event | SIM switch (data moved to the other SIM), IP change (same SIM, new address), Data interrupted (IP gone and back unchanged), Data lost (no cellular IP for 30 s) |
+| started_utc | When the previous data path ended |
+| gap_s | Time without a cellular IP (resolution about 1 s) |
+| time_on_previous_s | Time on the previous SIM / address |
+| from_sim, from_carrier, from_plmn, from_iface, from_ipv4, from_ipv6 | Before |
+| to_sim, to_carrier, to_plmn, to_iface, to_ipv4, to_ipv6 | After |
+| from_ip_owner, to_ip_owner | From the registry-checked ranges (analyzer v5.14): Spectrum Mobile on Verizon (2600:100c, 100.124.x), Spectrum HMNO (2603:90f4, 10.14.x), Verizon Wireless (2600:1000::/28, 2600:1010::/29, 97.128/9, 174.192/10, 70.192/11), T-Mobile, AT&T Mobility, Carrier NAT, Private, Other |
+| sims | Active SIMs, e.g. `SIM1 Spectrum 311480; SIM2 Verizon 311480` |
+| default_connection | WIFI or CELLULAR (what the phone used by default) |
+| profile, test_running, test_type, site_id | Context |
+| GPS + radio columns | At the event |
+
+## DSDS summary (sheet in the session email, Android)
+
+| Column | Meaning |
+|---|---|
+| metric | Session length; Time with data on SIM n; SIM switch SIMa carrier -> SIMb carrier (one row per direction); IP change; Data interrupted; Data lost |
+| count_or_value | Count of events, or seconds |
+| gap_avg_s, gap_median_s, gap_max_s | Gap without a cellular IP for those events |

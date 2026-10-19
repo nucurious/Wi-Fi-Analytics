@@ -16,7 +16,8 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 1.2 | Oct 18, 2026 | 4dd5252, bc020ac, 72ca927 | Traffic profiles; email results; Excel workbook. |
 | 1.3 | Oct 18, 2026 | 90fe7a5 | Lab iperf3 server. |
 | 1.4 | Oct 19, 2026 | aaafbb5, 2f2829b | Debug app and logcat capture. |
-| 2.0 | Oct 19, 2026 | this update | App v1.3: APK names, Lab profile, test servers and automatic switching, lab server status, file naming, version tables. |
+| 2.0 | Oct 19, 2026 | 78ad25f | App v1.3: APK names, Lab profile, test servers and automatic switching, lab server status, file naming, version tables. |
+| 2.1 | Oct 19, 2026 | 994535f | Geofence and dual-SIM (DSDS) logs section; app 1.3.1 / debug 1.0.1. |
 
 ## App and script versions
 
@@ -25,9 +26,11 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Wi-Fi Analytics (Android) | 1.0 | Oct 17, 2026 | dde7a99 | First version in the repository: iperf3 TCP/UDP, ping latency, GPS and radio logging, sites, CSV export. |
 | Wi-Fi Analytics (Android) | 1.1 | Oct 18, 2026 | a1f1e21 to 72ca927 (Codemagic build 8) | TWAMP latency during every test; Wi-Fi generation and BSSID; long runs; Drive and Walk profiles; email when a session stops; Excel workbook; screen-freeze fixes. |
 | Wi-Fi Analytics (Android) | 1.2 | Oct 18-19, 2026 | 90fe7a5 to f33eaac | Lab server as default with shortcuts; address:port parsing and repair of saved addresses; 11 public servers; automatic port/server switching; Server failures sheet. |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 (current) | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
-| Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 (current) | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
-| Wi-Fi Analytics (iPhone) | 1.3 (code) | Oct 19, 2026 | 1c9fce9 | Same code as Android v1.3. Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.0 | Oct 19, 2026 | 9313d12 to 1c9fce9 | File names Field\|Lab_Make_Model_build_profile_LOC_IMEI_date-time; Lab profile (UDP up and down together); app renamed; Field unless the Lab profile runs; exports named _all_; walk tests only on Wi-Fi; tests stopped before data not recorded. |
+| Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334, 994535f (current) | Geofence: every saved site is a fence (radius per site), Entered / Exited logged with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches, IP changes and data gaps with IP owner on a DSDS transitions sheet, plus a DSDS summary per session; data SIM and cellular IP added to every row. |
+| Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334, 994535f (current) | Same new features as 1.3.1, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.1 (code) | Oct 19, 2026 | 994535f | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
@@ -193,6 +196,12 @@ Walk tests only run while the phone is on Wi-Fi; a test that would start on cell
 
 Every row records the `profile`, and `tests.csv` records the `trigger` (for example `Joined Wi-Fi SpectrumWiFi a4:2b:…`).
 
+## Geofence and dual-SIM (DSDS) logs
+
+**Geofence:** every saved site with coordinates is a geofence. Set the radius when adding the site (default 100 m; sites can also be added at typed coordinates) or long-press a site to change it. With the app open, **Entered** and **Exited** are logged (10 m margin against GPS jitter; fixes worse than 50 m ignored) on the **Geofence** sheet with time, site, distance, time inside, GPS and radio. The last event shows on the Test screen.
+
+**Dual SIM (Android):** the app reads every second which SIM carries mobile data (slot, carrier, PLMN) and the cellular IP addresses. **SIM switch**, **IP change**, **Data interrupted** and **Data lost** go to the **DSDS transitions** sheet with the gap without a cellular IP, time on the previous SIM, both SIMs, addresses and the IP owner (Spectrum Mobile on Verizon, Spectrum HMNO, Verizon Wireless …). The session email adds a **DSDS summary** sheet: time with data on each SIM, switches per direction with average/median/max gap, and counts. Needs the **Phone** permission; iPhones don't expose this.
+
 ## Emailing results automatically
 
 When a session stops (Stop on a drive/walk/repeat run, or the end of a single test), the app emails **that session's rows** to the address in **Settings → Email results** (default `rockfordtest7@gmail.com`).
@@ -200,7 +209,7 @@ When a session stops (Stop on a drive/walk/repeat run, or the end of a single te
 1. Use a Gmail account just for sending. Turn on **2-Step Verification**, then create an **App password** (Google Account → Security → App passwords).
 2. In the app, **Settings → Email results**: enter the sender Gmail address and the 16-character app password, check the IMEI last 4 digits (dial `*#06#`; Android 10+ and iPhone don't let apps read it), then **Save settings**.
 
-The attachment is one Excel workbook named `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx`, for example `Field_Samsung_S25_ylz1_walk_DAL_3245_20261019-1123.xlsx`: Lab only for the Lab profile; model as a short name (S25, S25E, 17ProMax); build = last 4 of the software build (iPhone: iOS version); profile walk, drive, lab or stationary; location from **Settings → Location code**, else the market nearest the site or GPS (DEN, DAL, HEN, ATL, CLT, MAC …); IMEI last 4 (`xxxx` if not set). **Settings → File names** shows the current name. The workbook has a sheet each for **Tests**, **Speed (per second)**, **Latency (per second)**, **GPS track**, **Server failures** and **Sites**. Data-tab exports hold every log and are named `…_all_…`. If a session is too big for one email (long weekend runs), its data is sent as gzip-compressed CSVs split across several emails instead. With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
+The attachment is one Excel workbook named `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx`, for example `Field_Samsung_S25_ylz1_walk_DAL_3245_20261019-1123.xlsx`: Lab only for the Lab profile; model as a short name (S25, S25E, 17ProMax); build = last 4 of the software build (iPhone: iOS version); profile walk, drive, lab or stationary; location from **Settings → Location code**, else the market nearest the site or GPS (DEN, DAL, HEN, ATL, CLT, MAC …); IMEI last 4 (`xxxx` if not set). **Settings → File names** shows the current name. The workbook has a sheet each for **Tests**, **Speed (per second)**, **Latency (per second)**, **GPS track**, **Server failures**, **Geofence**, **DSDS transitions**, **DSDS summary** (Android) and **Sites**. Data-tab exports hold every log and are named `…_all_…`. If a session is too big for one email (long weekend runs), its data is sent as gzip-compressed CSVs split across several emails instead. With no signal, the email waits in an outbox and is retried every 10 minutes and when the app starts; the Data tab shows the status and a **Send now** button.
 
 The app password is stored on the phone in the app's private storage. Use a sending account that holds nothing else.
 
