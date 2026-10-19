@@ -13,7 +13,7 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `geofence.csv` | Geofence crossing (Entered / Exited / Inside at start) |
 | `dsds_transitions.csv` | Dual-SIM data transition (Android) |
 
-The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Sites; the session email also has a DSDS summary sheet (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
+The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Sites; the session email also has a Transition performance sheet (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
 Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 
