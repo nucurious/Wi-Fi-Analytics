@@ -114,13 +114,12 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<void> _shareLogcat(BuildContext buttonContext) async {
-    final dir = widget.state.logcat.dir;
+    final dir = await widget.state.logcat.root();
     final files = !await dir.exists()
         ? <File>[]
-        : (await dir.list().toList()).whereType<File>().where((f) => f.path.endsWith('.gz')).toList();
+        : (await dir.list(recursive: true).toList()).whereType<File>().where((f) => f.path.endsWith('.txt.gz')).toList();
     if (files.isEmpty) {
-      _snack('No saved logcat yet. It is recorded during each test session; '
-          'sessions that were emailed are not kept here.');
+      _snack('No saved logcat yet. It is recorded during each test session.');
       return;
     }
     files.sort((a, b) => a.path.compareTo(b.path));
@@ -145,9 +144,10 @@ class _DataScreenState extends State<DataScreen> {
             Text('Logcat (debug app)', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(rec.running
-                ? 'Recording: ${rec.lines} lines so far'
-                : 'Recorded during every test session (main, system, radio, events, crash; UTC). '
-                    'Emailed with the results, or shared from here.'),
+                ? 'Recording to ${rec.sessionDir?.path ?? ''}'
+                : 'Recorded during every test session (logcat -b all -v time, rotating files). '
+                    'Emailed with the results, shared from here, or: '
+                    'adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat'),
             if (rec.problem != null) Text(rec.problem!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             const SizedBox(height: 6),
             Text(

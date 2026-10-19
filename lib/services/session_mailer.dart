@@ -55,7 +55,7 @@ class SessionMailer {
     required String filePrefix,
     required String subject,
     required String body,
-    List<File> extraFiles = const [], // e.g. logcat .txt.gz parts (always emailed)
+    List<File> extraFiles = const [], // e.g. logcat .txt.gz parts (always emailed; copied)
   }) async {
     await store.flush();
     // Same name for every session of a day, so each gets its own outbox folder.
@@ -104,7 +104,8 @@ class SessionMailer {
       }
     }
     for (final f in extraFiles) {
-      if (await f.exists()) await f.rename('${dir.path}/${f.uri.pathSegments.last}');
+      // Copy: the originals stay on the phone for adb pull / Share logcat.
+      if (await f.exists()) await f.copy('${dir.path}/${f.uri.pathSegments.last}');
     }
     await File('${dir.path}/message.json').writeAsString(jsonEncode({'subject': subject, 'body': body}));
     return true;

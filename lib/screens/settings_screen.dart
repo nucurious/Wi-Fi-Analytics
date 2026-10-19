@@ -42,7 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
   late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat;
-  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode;
+  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts;
   late String _env;
   bool _showPass = false;
   late String _driveDir;
@@ -84,6 +84,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _repeat = s.repeatUntilStopped;
     _rotate = s.rotateServers;
     _logcat = s.recordLogcat;
+    _lcMb = TextEditingController(text: '${s.logcatPartMb}');
+    _lcParts = TextEditingController(text: '${s.logcatParts}');
     _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
     _driveDir = s.driveUdpDirection;
     _walkSettle = TextEditingController(text: '${s.walkSettleSeconds}');
@@ -145,6 +147,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       imeiLast4: _imei.text.trim(),
       rotateServers: _rotate,
       recordLogcat: _logcat,
+      logcatPartMb: int.parse(_lcMb.text),
+      logcatParts: int.parse(_lcParts.text),
       testEnvironment: _env,
       locationCode: _locCode.text.trim().toUpperCase(),
     ));
@@ -380,6 +384,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: _logcat,
               onChanged: (v) => setState(() => _logcat = v),
             ),
+          if (kDebugApp)
+            _intField(_lcMb, 'Logcat file size (MB)', min: 1, max: 1024,
+                helper: '64 MB gzips to ~6 MB and fits in email. 1024 = same as the .bat (1 GB files, too big to email)'),
+          if (kDebugApp)
+            _intField(_lcParts, 'Logcat files to keep', min: 1, max: 99,
+                helper: 'When full, the oldest file is overwritten (logcat -n). 64 MB x 50 = 3.2 GB max'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Keep screen on during tests'),

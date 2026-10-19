@@ -236,8 +236,17 @@ everything it does, plus records logcat during every test session.
 
    Then force-stop and reopen the app. Data tab > Logcat > Check access should say
    "Full access granted". Without it, only the app's own lines are recorded.
-3. Each session records `logcat -b main,system,radio,events,crash -v threadtime -v year -v UTC`
-   (same as `adb logcat` with those options), in 64 MB parts, gzipped when the session stops.
-   The parts are emailed with the session results (`<file name>_logcat_01.txt.gz` ...) or, if
-   email is off, shared from Data > Logcat > Share logcat. Timestamps are UTC, for lining up
-   with PCAPs and the twamp / speed sheets (time_utc columns).
+3. Each session records `logcat -b all -v time -f logcat_output.txt -r <size> -n <files>`, the same
+   capture as On-Device_AdbLogging.bat, into its own folder:
+   `/sdcard/Android/data/com.example.analyticsdebug/files/logcat/<session file name>/`.
+   Defaults: 64 MB files (about 6 MB gzipped, fits in email), 50 files kept; set 1024 MB to match
+   the .bat. It starts from "now" (`-T 1`) instead of clearing the buffer, so other logs are not wiped.
+   When the session stops, each file is gzipped (`<file name>_logcat_output.txt.gz`, `.01`, ... higher
+   number = older), emailed with the results, and kept on the phone for Data > Logcat > Share or:
+
+   ```
+   adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat
+   ```
+
+   `session_info.txt` in each folder gives the start time in UTC and the phone's time zone
+   (`-v time` stamps are phone local time, without the year).

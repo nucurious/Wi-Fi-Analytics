@@ -1,35 +1,29 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-/// Debug app only: records `adb logcat` on the phone during a test session.
+/// Debug app only: records logcat on the phone during each test session,
+/// the same way as On-Device_AdbLogging.bat:
+///   logcat -b all -v time -f logcat_output.txt -r <KB> -n <count>
+/// logcat itself writes and rotates the files (logcat_output.txt, .01, .02 ...,
+/// higher number = older), one folder per session:
+///   /sdcard/Android/data/<package>/files/logcat/<session file name>/
+/// so they can also be pulled with adb:
+///   adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat
 ///
-/// Android lets an app read other apps' and the radio's logs only with the
-/// READ_LOGS permission, which can't be granted on the phone itself. Grant it
-/// once per install from a computer:
+/// Reading other apps' and the radio's logs needs READ_LOGS, granted once per
+/// install from a computer:
 ///   adb shell pm grant com.example.analyticsdebug android.permission.READ_LOGS
-/// Without it, logcat only shows this app's own lines.
-///
-/// Lines are written as `logcat -v threadtime -v year -v UTC` (same as
-/// `adb logcat -v threadtime -v year -v UTC`), in parts of [partBytes] so each
-/// gzip part fits in an email.
+/// (Android 13+ also asks "Allow access to all device logs?" on the phone.)
 class LogcatRecorder {
-  final Directory dir;
-  LogcatRecorder(this.dir);
-
-  static const buffers = ['main', 'system', 'radio', 'events', 'crash'];
-  static const int partBytes = 64 * 1024 * 1024; // ~5-8 MB once gzipped
+  /// Parent folder; each session gets a sub-folder.
+  final Future<Directory> Function() root;
+  LogcatRecorder(this.root);
 
   Process? _proc;
-  IOSink? _sink;
-  File? _current;
-  int _bytes = 0;
-  int _part = 0;
+  Directory? sessionDir;
   String _prefix = 'logcat';
-  final List<File> parts = [];
-  final _done = <Future<void>>[];
-  int lines = 0;
+  DateTime? _started;
   String? problem;
 
   bool get running => _proc != null;
@@ -46,86 +40,89 @@ class LogcatRecorder {
     }
   }
 
-  Future<void> start(String prefix) async {
+  /// Bytes written so far in this session (all rotated files).
+  Future<int> bytesSoFar() async {
+    final d = sessionDir;
+    if (d == null || !await d.exists()) return 0;
+    var n = 0;
+    await for (final e in d.list()) {
+      if (e is File && e.path.contains('logcat_output.txt')) n += await e.length();
+    }
+    return n;
+  }
+
+  Future<void> start(String prefix, {int partMb = 64, int parts = 50}) async {
     if (_proc != null || !Platform.isAndroid) return;
     problem = null;
     _prefix = prefix;
-    _part = 0;
-    parts.clear();
-    lines = 0;
+    _started = DateTime.now();
+    final dir = Directory('${(await root()).path}/$prefix');
     await dir.create(recursive: true);
+    sessionDir = dir;
     if (!await hasFullAccess()) {
       problem = 'Logcat: only this app\'s own lines. Grant full access once from a computer: '
-          'adb shell pm grant <package> android.permission.READ_LOGS';
+          'adb shell pm grant com.example.analyticsdebug android.permission.READ_LOGS';
     }
+    final t = _started!;
+    final off = t.timeZoneOffset;
+    String two(int n) => n.abs().toString().padLeft(2, '0');
+    await File('${dir.path}/session_info.txt').writeAsString(
+        'session: $prefix\n'
+        'started (phone local): $t\n'
+        'started (UTC): ${t.toUtc().toIso8601String()}\n'
+        'logcat times are phone local time (-v time), UTC${off.isNegative ? '-' : '+'}${two(off.inHours)}:${two(off.inMinutes % 60)} (${t.timeZoneName})\n'
+        'command: logcat -b all -v time -T 1 -f logcat_output.txt -r ${partMb * 1024} -n $parts\n');
     try {
-      // -T 1: start from now (not the whole ring buffer).
-      final proc = await Process.start('logcat', [
-        for (final b in buffers) ...['-b', b],
-        '-v', 'threadtime', '-v', 'year', '-v', 'UTC',
+      // -T 1: start from now instead of dumping the whole buffer (the .bat
+      // clears the buffer instead, which would wipe other apps' logs).
+      _proc = await Process.start('logcat', [
+        '-b', 'all',
+        '-v', 'time',
         '-T', '1',
+        '-f', '${dir.path}/logcat_output.txt',
+        '-r', '${partMb * 1024}',
+        '-n', '$parts',
       ]);
-      _proc = proc;
-      _openPart();
-      _done.add(proc.stdout.listen(_write).asFuture<void>().catchError((_) {}));
-      _done.add(proc.stderr.transform(utf8.decoder).listen((e) {
-        if (e.trim().isNotEmpty) problem = 'Logcat: ${e.trim()}';
-      }).asFuture<void>().catchError((_) {}));
+      unawaited(_proc!.exitCode.then((code) {
+        if (_proc != null && code != 0) problem = 'Logcat stopped by itself (exit code $code)';
+      }));
     } catch (e) {
       problem = 'Logcat could not start: $e';
       _proc = null;
     }
   }
 
-  void _openPart() {
-    _part++;
-    final f = File('${dir.path}/${_prefix}_logcat_${_part.toString().padLeft(2, '0')}.txt');
-    _current = f;
-    _sink = f.openWrite();
-    _bytes = 0;
-    parts.add(f);
-  }
-
-  void _write(List<int> data) {
-    final sink = _sink;
-    if (sink == null) return;
-    sink.add(data);
-    _bytes += data.length;
-    for (final b in data) {
-      if (b == 10) lines++;
-    }
-    if (_bytes >= partBytes) {
-      final old = sink;
-      _openPart();
-      unawaited(old.close());
-    }
-  }
-
-  /// Stops logcat and gzips each part off the UI thread. Returns the .gz files.
+  /// Stops logcat and gzips each file off the UI thread, oldest first:
+  /// <session>_logcat_output.txt.20.gz ... <session>_logcat_output.txt.gz.
+  /// The .gz files stay in the session folder (Data > Share logcat, adb pull).
   Future<List<File>> stop() async {
     final proc = _proc;
     _proc = null;
     if (proc == null) return [];
     proc.kill();
     try {
-      await Future.wait(_done).timeout(const Duration(seconds: 5));
+      await proc.exitCode.timeout(const Duration(seconds: 5));
     } catch (_) {}
-    _done.clear();
-    await _sink?.flush();
-    await _sink?.close();
-    _sink = null;
-    _current = null;
+    final dir = sessionDir;
+    if (dir == null || !await dir.exists()) return [];
+    final raw = (await dir.list().toList())
+        .whereType<File>()
+        .where((f) => RegExp(r'logcat_output\.txt(\.\d+)?$').hasMatch(f.path))
+        .toList();
+    int age(File f) => int.tryParse(RegExp(r'\.(\d+)$').firstMatch(f.path)?[1] ?? '') ?? 0;
+    raw.sort((a, b) => age(b).compareTo(age(a))); // oldest first
     final out = <File>[];
-    for (final f in List.of(parts)) {
-      if (!await f.exists() || await f.length() == 0) continue;
-      final src = f.path, dst = '${f.path}.gz';
+    for (final f in raw) {
+      if (await f.length() == 0) continue;
+      final name = f.uri.pathSegments.last; // logcat_output.txt.01
+      final dst = '${dir.path}/${_prefix}_${name.replaceFirst('logcat_output.txt', 'logcat_output')}.txt.gz';
+      final src = f.path;
       await Isolate.run(() async {
         await File(src).openRead().transform(gzip.encoder).pipe(File(dst).openWrite());
         await File(src).delete();
       });
       out.add(File(dst));
     }
-    parts.clear();
     return out;
   }
 }

@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:radio_info/radio_info.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -62,6 +63,8 @@ class Settings {
   bool rotateServers;
 
   bool recordLogcat; // debug app only: capture logcat during each session
+  int logcatPartMb; // rotate logcat files at this size (64 MB gzips to ~6 MB, fits email)
+  int logcatParts; // keep this many rotated files (older ones are overwritten)
 
   // Output file names
   String testEnvironment; // 'auto' | 'field' | 'lab'
@@ -98,6 +101,8 @@ class Settings {
     this.imeiLast4 = '',
     this.rotateServers = true,
     this.recordLogcat = true,
+    this.logcatPartMb = 64,
+    this.logcatParts = 50,
     this.testEnvironment = 'auto',
     this.locationCode = '',
   });
@@ -133,6 +138,8 @@ class Settings {
         'imeiLast4': imeiLast4,
         'rotateServers': rotateServers,
         'recordLogcat': recordLogcat,
+        'logcatPartMb': logcatPartMb,
+        'logcatParts': logcatParts,
         'testEnvironment': testEnvironment,
         'locationCode': locationCode,
       };
@@ -174,6 +181,8 @@ class Settings {
       imeiLast4: j['imeiLast4'] as String? ?? d.imeiLast4,
       rotateServers: j['rotateServers'] as bool? ?? d.rotateServers,
       recordLogcat: j['recordLogcat'] as bool? ?? d.recordLogcat,
+      logcatPartMb: (j['logcatPartMb'] as num?)?.toInt() ?? d.logcatPartMb,
+      logcatParts: (j['logcatParts'] as num?)?.toInt() ?? d.logcatParts,
       testEnvironment: j['testEnvironment'] as String? ?? d.testEnvironment,
       locationCode: j['locationCode'] as String? ?? d.locationCode,
     );
@@ -192,7 +201,9 @@ extension TestProfileLabel on TestProfile {
 class AppState extends ChangeNotifier {
   final DataStore store = DataStore();
   late final SessionMailer mailer = SessionMailer(store);
-  late final LogcatRecorder logcat = LogcatRecorder(Directory('${store.directory.path}/logcat'));
+  // External app folder so the files can also be pulled with adb.
+  late final LogcatRecorder logcat = LogcatRecorder(() async =>
+      Directory('${((await getExternalStorageDirectory()) ?? store.directory).path}/logcat'));
   Map<String, dynamic> device = {}; // make, model, osVersion, imeiLast4 (if readable)
   DateTime? _sessionStart;
   Map<String, int>? _sessionOffsets;
@@ -1017,7 +1028,7 @@ class AppState extends ChangeNotifier {
     _activeByTest.clear();
     _sessionOffsets = await mailer.markStart();
     if (kDebugApp && settings.recordLogcat) {
-      await logcat.start(fileName(p, _sessionStart));
+      await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
       notifyListeners();
     }
   }
@@ -1062,8 +1073,11 @@ class AppState extends ChangeNotifier {
       ..writeln('Attached: $prefix.xlsx, one Excel workbook with a sheet each for')
       ..writeln('Tests, Speed (per second), Latency (per second) and GPS track, for this session only.');
     if (logcatFiles.isNotEmpty) {
-      b.writeln('Also attached: logcat for this session (${logcatFiles.length} gzip part${logcatFiles.length == 1 ? '' : 's'}, '
-          'main/system/radio/events/crash, UTC timestamps).');
+      final off = start.timeZoneOffset;
+      b.writeln('Also attached: logcat for this session (${logcatFiles.length} gzip file${logcatFiles.length == 1 ? '' : 's'}, '
+          'logcat -b all -v time; times are phone local time, UTC${off.isNegative ? '-' : '+'}${off.inHours.abs().toString().padLeft(2, '0')}:00). '
+          'Parts over the email size limit stay on the phone: '
+          'adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat');
     }
     try {
       final queued = await mailer.queueSession(
