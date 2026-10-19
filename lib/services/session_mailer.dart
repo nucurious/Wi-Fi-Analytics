@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
 
+import '../app_config.dart';
 import 'data_store.dart';
 import 'xlsx_writer.dart';
 
@@ -54,6 +55,7 @@ class SessionMailer {
     required String filePrefix,
     required String subject,
     required String body,
+    List<File> extraFiles = const [], // e.g. logcat .txt.gz parts (always emailed)
   }) async {
     await store.flush();
     // Same name for every session of a day, so each gets its own outbox folder.
@@ -100,6 +102,9 @@ class SessionMailer {
           await rows().transform(gzip.encoder).pipe(File(out).openWrite());
         });
       }
+    }
+    for (final f in extraFiles) {
+      if (await f.exists()) await f.rename('${dir.path}/${f.uri.pathSegments.last}');
     }
     await File('${dir.path}/message.json').writeAsString(jsonEncode({'subject': subject, 'body': body}));
     return true;
@@ -159,12 +164,16 @@ class SessionMailer {
         final meta = jsonDecode(await metaFile.readAsString()) as Map;
         final all = (await dir.list().toList()).whereType<File>().toList()..sort((a, b) => a.path.compareTo(b.path));
         final workbooks = all.where((f) => f.path.endsWith('.xlsx')).toList();
-        final gzips = all.where((f) => f.path.endsWith('.gz')).toList();
+        final logcat = all.where((f) => f.path.endsWith('.txt.gz')).toList();
+        final gzips = all.where((f) => f.path.endsWith('.gz') && !f.path.endsWith('.txt.gz')).toList();
         // The Excel workbook if it fits in one email, else the CSVs split over several.
-        final files = (workbooks.isNotEmpty && (gzips.isEmpty || await workbooks.first.length() <= maxEmailBytes))
-            ? workbooks
-            : gzips;
-        final note = files == gzips && workbooks.isNotEmpty
+        final files = [
+          ...(workbooks.isNotEmpty && (gzips.isEmpty || await workbooks.first.length() <= maxEmailBytes))
+              ? workbooks
+              : gzips,
+          ...logcat,
+        ];
+        final note = gzips.isNotEmpty && files.contains(gzips.first) && workbooks.isNotEmpty
             ? '\n\nThis session\'s Excel workbook is too large for email, so its data is attached as '
                 'gzip-compressed CSVs, split across emails if needed (open with 7-Zip on Windows, or double-click on a Mac). '
                 'Data tab > Export Excel workbook on the phone still makes the workbook.'
@@ -198,7 +207,7 @@ class SessionMailer {
             text += '\n\nToo large to email (kept on the phone, export from the Data tab):\n  ${tooBig.join('\n  ')}';
           }
           final message = Message()
-            ..from = Address(user.trim(), 'Wi-Fi_Analytics_v1.3')
+            ..from = Address(user.trim(), kAppName)
             ..recipients.add(to.trim())
             ..subject = '${meta['subject']}$suffix'
             ..text = text

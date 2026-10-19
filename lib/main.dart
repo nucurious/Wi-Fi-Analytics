@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_config.dart';
 import 'app_state.dart';
 import 'screens/data_screen.dart';
 import 'screens/settings_screen.dart';
@@ -21,7 +22,7 @@ class WifiAnalyticsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     const seed = Color(0xFF0B7A75);
     return MaterialApp(
-      title: 'Wi-Fi_Analytics_v1.3',
+      title: kAppName,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: seed),

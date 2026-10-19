@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:radio_info/radio_info.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'app_config.dart';
 import 'iperf/iperf_background.dart';
 import 'iperf/iperf_client.dart';
 import 'iperf/server_pool.dart';
@@ -15,6 +16,7 @@ import 'models.dart';
 import 'util/file_naming.dart';
 import 'util/host_address.dart';
 import 'services/data_store.dart';
+import 'services/logcat_recorder.dart';
 import 'services/session_mailer.dart';
 
 class Settings {
@@ -59,6 +61,8 @@ class Settings {
   // port / public server instead, and keep that failure out of the results.
   bool rotateServers;
 
+  bool recordLogcat; // debug app only: capture logcat during each session
+
   // Output file names
   String testEnvironment; // 'auto' | 'field' | 'lab'
   String locationCode; // e.g. DAL; blank = from the site or GPS
@@ -93,6 +97,7 @@ class Settings {
     this.smtpPassword = '',
     this.imeiLast4 = '',
     this.rotateServers = true,
+    this.recordLogcat = true,
     this.testEnvironment = 'auto',
     this.locationCode = '',
   });
@@ -127,6 +132,7 @@ class Settings {
         'smtpPassword': smtpPassword,
         'imeiLast4': imeiLast4,
         'rotateServers': rotateServers,
+        'recordLogcat': recordLogcat,
         'testEnvironment': testEnvironment,
         'locationCode': locationCode,
       };
@@ -167,6 +173,7 @@ class Settings {
       smtpPassword: j['smtpPassword'] as String? ?? d.smtpPassword,
       imeiLast4: j['imeiLast4'] as String? ?? d.imeiLast4,
       rotateServers: j['rotateServers'] as bool? ?? d.rotateServers,
+      recordLogcat: j['recordLogcat'] as bool? ?? d.recordLogcat,
       testEnvironment: j['testEnvironment'] as String? ?? d.testEnvironment,
       locationCode: j['locationCode'] as String? ?? d.locationCode,
     );
@@ -185,6 +192,7 @@ extension TestProfileLabel on TestProfile {
 class AppState extends ChangeNotifier {
   final DataStore store = DataStore();
   late final SessionMailer mailer = SessionMailer(store);
+  late final LogcatRecorder logcat = LogcatRecorder(Directory('${store.directory.path}/logcat'));
   Map<String, dynamic> device = {}; // make, model, osVersion, imeiLast4 (if readable)
   DateTime? _sessionStart;
   Map<String, int>? _sessionOffsets;
@@ -1008,6 +1016,10 @@ class AppState extends ChangeNotifier {
     _activeServer = null;
     _activeByTest.clear();
     _sessionOffsets = await mailer.markStart();
+    if (kDebugApp && settings.recordLogcat) {
+      await logcat.start(fileName(p, _sessionStart));
+      notifyListeners();
+    }
   }
 
   Future<void> _endSession() async {
@@ -1015,6 +1027,9 @@ class AppState extends ChangeNotifier {
     final offsets = _sessionOffsets;
     _sessionStart = null;
     _sessionOffsets = null;
+    // Debug app: logcat parts stay in the logcat folder (Data > Share logcat)
+    // unless they are emailed with the session below.
+    final logcatFiles = logcat.running ? await logcat.stop() : <File>[];
     if (start == null || offsets == null || !settings.emailResults) return;
     final end = DateTime.now();
     final prefix = fileName(_sessionProfile, start);
@@ -1022,7 +1037,7 @@ class AppState extends ChangeNotifier {
     String two(int n) => n.toString().padLeft(2, '0');
     final dur = end.difference(start);
     final b = StringBuffer()
-      ..writeln('WiFi Analytics results')
+      ..writeln('$kAppName results')
       ..writeln()
       ..writeln('Device:   ${device['make'] ?? ''} ${device['model'] ?? ''}  (IMEI last 4: ${settings.imeiLast4.isEmpty ? 'not set' : settings.imeiLast4})  ${device['osVersion'] ?? ''}')
       ..writeln('Profile:  ${_sessionProfile.label}')
@@ -1046,12 +1061,17 @@ class AppState extends ChangeNotifier {
       ..writeln()
       ..writeln('Attached: $prefix.xlsx, one Excel workbook with a sheet each for')
       ..writeln('Tests, Speed (per second), Latency (per second) and GPS track, for this session only.');
+    if (logcatFiles.isNotEmpty) {
+      b.writeln('Also attached: logcat for this session (${logcatFiles.length} gzip part${logcatFiles.length == 1 ? '' : 's'}, '
+          'main/system/radio/events/crash, UTC timestamps).');
+    }
     try {
       final queued = await mailer.queueSession(
         offsets: offsets,
         filePrefix: prefix,
-        subject: 'WiFi Analytics: $prefix',
+        subject: '$kAppName: $prefix',
         body: b.toString(),
+        extraFiles: logcatFiles,
       );
       if (queued) unawaited(sendPendingEmail());
     } catch (e) {

@@ -3,7 +3,10 @@
 // Run from the project root AFTER `flutter create`:
 //   dart run tool/setup.dart
 //
-// Optional environment variable:
+// Optional environment variables:
+//   APP_NAME    name under the app icon (default Wi-Fi_Analytics_v1.3)
+//   DEBUG_APP   "true" for the debug app: adds READ_LOGS (granted later with
+//               adb shell pm grant <id> android.permission.READ_LOGS)
 //   BUNDLE_ID   iOS bundle identifier / Android application ID
 //               (e.g. com.yourname.wifianalytics). Must match what you
 //               registered with Apple.
@@ -12,7 +15,10 @@
 
 import 'dart:io';
 
-const appName = 'Wi-Fi_Analytics_v1.3';
+final appName = (Platform.environment['APP_NAME']?.trim().isNotEmpty ?? false)
+    ? Platform.environment['APP_NAME']!.trim()
+    : 'Wi-Fi_Analytics_v1.3';
+final debugApp = Platform.environment['DEBUG_APP'] == 'true';
 
 void main() {
   final bundleId = Platform.environment['BUNDLE_ID']?.trim();
@@ -58,8 +64,18 @@ void _patchAndroidManifest() {
     final m = RegExp(r'<manifest[^>]*>').firstMatch(xml)!;
     xml = xml.replaceRange(m.end, m.end, '\n$lines');
   }
+  if (debugApp && !xml.contains('android.permission.READ_LOGS')) {
+    // A development permission: only adb can grant it. tools:ignore keeps the
+    // release lint check from failing the build.
+    if (!xml.contains('xmlns:tools=')) {
+      xml = xml.replaceFirst('<manifest ', '<manifest xmlns:tools="http://schemas.android.com/tools" ');
+    }
+    final m = RegExp(r'<manifest[^>]*>').firstMatch(xml)!;
+    xml = xml.replaceRange(m.end, m.end,
+        '\n    <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />');
+  }
   f.writeAsStringSync(xml);
-  stdout.writeln('Patched AndroidManifest.xml');
+  stdout.writeln('Patched AndroidManifest.xml${debugApp ? ' (debug app, READ_LOGS)' : ''}');
 }
 
 void _patchAndroidAppId(String id) {

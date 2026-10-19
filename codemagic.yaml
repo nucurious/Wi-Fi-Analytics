@@ -30,6 +30,35 @@ workflows:
     artifacts:
       - build/app/outputs/flutter-apk/Wi-Fi_Analytics_v1.3.apk
 
+  # ---------------------------------------------------------------- Android debug app
+  # Separate app (installs next to the main one) that also records logcat.
+  # After installing, grant log access once from a computer:
+  #   adb shell pm grant com.example.analyticsdebug android.permission.READ_LOGS
+  android-debug-apk:
+    name: Android Debug APK (logcat)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        BUNDLE_ID: com.example.analyticsdebug
+        APP_NAME: Analytics_debug_ver1.0
+        DEBUG_APP: "true"
+    scripts:
+      - name: Generate platform folders
+        script: flutter create --no-pub --org com.wifianalytics --project-name wifi_analytics --platforms=android .
+      - name: Get packages
+        script: flutter pub get
+      - name: Apply debug app settings
+        script: dart run tool/setup.dart
+      - name: Build APK
+        script: |
+          flutter build apk --release --build-name=1.0.0 --build-number=$BUILD_NUMBER \
+            --dart-define=DEBUG_APP=true --dart-define=APP_NAME=Analytics_debug_ver1.0
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Analytics_debug_ver1.0.apk
+    artifacts:
+      - build/app/outputs/flutter-apk/Analytics_debug_ver1.0.apk
+
   # ---------------------------------------------------------------- iPhone -> TestFlight
   ios-testflight:
     name: iPhone TestFlight

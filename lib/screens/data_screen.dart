@@ -4,7 +4,9 @@ import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../app_config.dart';
 import '../app_state.dart';
+import '../services/logcat_recorder.dart';
 import '../services/data_store.dart';
 
 class DataScreen extends StatefulWidget {
@@ -104,6 +106,76 @@ class _DataScreenState extends State<DataScreen> {
     }
   }
 
+  bool? _logcatAccess;
+
+  Future<void> _checkLogcat() async {
+    final ok = await LogcatRecorder.hasFullAccess();
+    if (mounted) setState(() => _logcatAccess = ok);
+  }
+
+  Future<void> _shareLogcat(BuildContext buttonContext) async {
+    final dir = widget.state.logcat.dir;
+    final files = !await dir.exists()
+        ? <File>[]
+        : (await dir.list().toList()).whereType<File>().where((f) => f.path.endsWith('.gz')).toList();
+    if (files.isEmpty) {
+      _snack('No saved logcat yet. It is recorded during each test session; '
+          'sessions that were emailed are not kept here.');
+      return;
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
+    final box = buttonContext.findRenderObject() as RenderBox?;
+    await SharePlus.instance.share(ShareParams(
+      files: files.map((f) => XFile(f.path, mimeType: 'application/gzip')).toList(),
+      subject: '$kAppName logcat',
+      sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+    ));
+  }
+
+  Widget _logcatCard(BuildContext context) {
+    final rec = widget.state.logcat;
+    final pkg = 'com.example.analyticsdebug';
+    final access = _logcatAccess;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Logcat (debug app)', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(rec.running
+                ? 'Recording: ${rec.lines} lines so far'
+                : 'Recorded during every test session (main, system, radio, events, crash; UTC). '
+                    'Emailed with the results, or shared from here.'),
+            if (rec.problem != null) Text(rec.problem!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            const SizedBox(height: 6),
+            Text(
+              access == null
+                  ? 'Full access (radio and other apps\' logs) not checked yet.'
+                  : access
+                      ? 'Full access granted: radio and system logs are included.'
+                      : 'Only this app\'s own lines. Connect to a computer once and run:\n'
+                          'adb shell pm grant $pkg android.permission.READ_LOGS',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, children: [
+              OutlinedButton(onPressed: _checkLogcat, child: const Text('Check access')),
+              Builder(
+                builder: (c) => OutlinedButton.icon(
+                  onPressed: () => _shareLogcat(c),
+                  icon: const Icon(Icons.ios_share),
+                  label: const Text('Share logcat'),
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -126,6 +198,7 @@ class _DataScreenState extends State<DataScreen> {
             ],
           ),
           const SizedBox(height: 8),
+          if (kDebugApp) ...[_logcatCard(context), const SizedBox(height: 8)],
           Card(
             child: Column(
               children: [

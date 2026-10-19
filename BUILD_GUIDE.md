@@ -219,3 +219,25 @@ flutter run            # with a phone connected
 ```
 
 For iPhone you'll need a Mac with Xcode. Set `BUNDLE_ID=com.yourname.wifianalytics` before `dart run tool/setup.dart` to apply your Bundle ID.
+
+## Debug app: Analytics_debug_ver1.0 (records logcat)
+
+A separate app (`com.example.analyticsdebug`) that installs next to Wi-Fi_Analytics_v1.3 and does
+everything it does, plus records logcat during every test session.
+
+1. In Codemagic, start the **Android Debug APK (logcat)** workflow and install
+   `Analytics_debug_ver1.0.apk`.
+2. Android only lets an app read the radio and system logs if you grant it from a computer,
+   once per install (USB debugging on, phone connected):
+
+   ```
+   adb shell pm grant com.example.analyticsdebug android.permission.READ_LOGS
+   ```
+
+   Then force-stop and reopen the app. Data tab > Logcat > Check access should say
+   "Full access granted". Without it, only the app's own lines are recorded.
+3. Each session records `logcat -b main,system,radio,events,crash -v threadtime -v year -v UTC`
+   (same as `adb logcat` with those options), in 64 MB parts, gzipped when the session stops.
+   The parts are emailed with the session results (`<file name>_logcat_01.txt.gz` ...) or, if
+   email is off, shared from Data > Logcat > Share logcat. Timestamps are UTC, for lining up
+   with PCAPs and the twamp / speed sheets (time_utc columns).

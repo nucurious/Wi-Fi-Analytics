@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_config.dart';
 import '../app_state.dart';
 import '../iperf/server_pool.dart';
 import '../util/host_address.dart';
@@ -40,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
-  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate;
+  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode;
   late String _env;
   bool _showPass = false;
@@ -82,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _latDur = TextEditingController(text: '${s.latencyDuration}');
     _repeat = s.repeatUntilStopped;
     _rotate = s.rotateServers;
+    _logcat = s.recordLogcat;
     _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
     _driveDir = s.driveUdpDirection;
     _walkSettle = TextEditingController(text: '${s.walkSettleSeconds}');
@@ -142,6 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       smtpPassword: _smtpPass.text.trim(),
       imeiLast4: _imei.text.trim(),
       rotateServers: _rotate,
+      recordLogcat: _logcat,
       testEnvironment: _env,
       locationCode: _locCode.text.trim().toUpperCase(),
     ));
@@ -369,6 +372,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               helper: 'e.g. 900 = a speed test every 15 minutes'),
           const SizedBox(height: 16),
           _section('Logging'),
+          if (kDebugApp)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Record logcat during tests'),
+              subtitle: const Text('Saved per session (gzip) and emailed with the results. See the Data tab for access.'),
+              value: _logcat,
+              onChanged: (v) => setState(() => _logcat = v),
+            ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Keep screen on during tests'),

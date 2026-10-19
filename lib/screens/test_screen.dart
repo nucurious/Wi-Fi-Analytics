@@ -3,6 +3,7 @@ import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 
+import '../app_config.dart';
 import '../app_state.dart';
 import '../models.dart';
 
@@ -26,7 +27,7 @@ class _TestScreenState extends State<TestScreen> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            Text('Wi-Fi_Analytics_v1.3', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+            Text(kAppName, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
             if (s.locationProblem != null)
               _Banner(
