@@ -3,7 +3,10 @@ package com.wifianalytics.radio_info;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
@@ -12,6 +15,11 @@ import android.net.NetworkSpecifier;
 import android.net.TelephonyNetworkSpecifier;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
+import android.net.NetworkRequest;
+import android.net.TrafficStats;
+import android.net.wifi.ScanResult;
+import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -36,8 +44,10 @@ import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -76,6 +86,14 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
     // result is posted back to the main thread.
     private final ScheduledExecutorService radioWorker = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService dataWorker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService wifiWorker = Executors.newSingleThreadScheduledExecutor();
+
+    // Wi-Fi scans and connection steps, queued as they happen (with their own
+    // time stamps) and collected by the app once a second (getWifiEvents).
+    private final ConcurrentLinkedQueue<Map<String, Object>> wifiEvents = new ConcurrentLinkedQueue<>();
+    private BroadcastReceiver wifiReceiver;
+    private ConnectivityManager.NetworkCallback wifiNetCallback;
+    private int scansDelivered = 0;
 
     // Main-thread watchdog: every 200 ms a probe is posted to the main thread;
     // the delay before it runs is how long the main thread was blocked.
@@ -104,13 +122,16 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
                 probePending.set(false);
             });
         }, 200, 200, TimeUnit.MILLISECONDS);
+        registerWifiListeners();
     }
 
     @Override
     public void onDetachedFromEngine(FlutterPluginBinding binding) {
         channel.setMethodCallHandler(null);
         unregisterDisplayInfo();
+        unregisterWifiListeners();
         if (watchdog != null) watchdog.shutdownNow();
+        wifiWorker.shutdownNow();
         radioWorker.shutdownNow();
         dataWorker.shutdownNow();
     }
@@ -143,6 +164,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
 
     // ---------------------------------------------------------------- methods
 
+    @SuppressLint("MissingPermission")
     @Override
     public void onMethodCall(MethodCall call, MethodChannel.Result result) {
         switch (call.method) {
@@ -157,6 +179,30 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
                     } catch (Exception ignored) {
                     }
                     mainHandler.post(() -> result.success(d));
+                });
+                break;
+            case "getWifiEvents":
+                wifiWorker.execute(() -> {
+                    Map<String, Object> d = new HashMap<>();
+                    List<Object> list = new ArrayList<>();
+                    Map<String, Object> e;
+                    while ((e = wifiEvents.poll()) != null) list.add(e);
+                    d.put("events", list);
+                    d.put("scansDelivered", scansDelivered);
+                    putWifiBytes(d);
+                    mainHandler.post(() -> result.success(d));
+                });
+                break;
+            case "startWifiScan":
+                wifiWorker.execute(() -> {
+                    boolean ok = false;
+                    try {
+                        WifiManager wm = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                        if (wm != null && wm.isWifiEnabled()) ok = wm.startScan();
+                    } catch (Exception ignored) {
+                    }
+                    final boolean r = ok;
+                    mainHandler.post(() -> result.success(r));
                 });
                 break;
             case "getMainThreadLag":
@@ -575,6 +621,207 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             case 7: return "WiGig (ad)";
             case 8: return "Wi-Fi 7 (be)";
             default: return "Unknown";
+        }
+    }
+
+    // ---------------------------------------------------------------- Wi-Fi scans and joins
+
+    /**
+     * Listens to the phone's Wi-Fi scans (every scan, whoever started it) and to
+     * the connection steps: CONNECTING / AUTHENTICATING / OBTAINING_IPADDR /
+     * CONNECTED (network state), ASSOCIATING ... COMPLETED (supplicant), IP
+     * available, internet validated and lost (network callback). Each event gets
+     * the wall-clock time (ms) at which it happened.
+     */
+    @SuppressWarnings("deprecation")
+    private void registerWifiListeners() {
+        if (wifiReceiver != null) return;
+        wifiReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                final long now = System.currentTimeMillis();
+                final String action = intent.getAction();
+                if (WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(action)) {
+                    final boolean updated = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, true);
+                    wifiWorker.execute(() -> queueScan(now, updated));
+                } else if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(action)) {
+                    NetworkInfo ni = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
+                    final String st = ni == null ? null : String.valueOf(ni.getDetailedState());
+                    wifiWorker.execute(() -> queueState(now, "network", st, 0));
+                } else if (WifiManager.SUPPLICANT_STATE_CHANGED_ACTION.equals(action)) {
+                    SupplicantState ss = intent.getParcelableExtra(WifiManager.EXTRA_NEW_STATE);
+                    final int err = intent.getIntExtra(WifiManager.EXTRA_SUPPLICANT_ERROR, 0);
+                    final String st = ss == null ? null : ss.name();
+                    wifiWorker.execute(() -> queueState(now, "supplicant", st, err));
+                }
+            }
+        };
+        IntentFilter f = new IntentFilter();
+        f.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+        f.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        f.addAction(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION);
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(wifiReceiver, f, Context.RECEIVER_EXPORTED);
+            } else {
+                context.registerReceiver(wifiReceiver, f);
+            }
+        } catch (Exception ignored) {
+            wifiReceiver = null;
+        }
+        if (Build.VERSION.SDK_INT >= 24) {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                NetworkRequest req = new NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build();
+                wifiNetCallback = new ConnectivityManager.NetworkCallback() {
+                    private boolean validated = false;
+
+                    @Override
+                    public void onAvailable(Network n) {
+                        validated = false;
+                        queueNet("IP available");
+                    }
+
+                    @Override
+                    public void onCapabilitiesChanged(Network n, NetworkCapabilities nc) {
+                        boolean v = nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                        if (v && !validated) queueNet("Internet validated");
+                        validated = v;
+                    }
+
+                    @Override
+                    public void onLost(Network n) {
+                        validated = false;
+                        queueNet("Lost");
+                    }
+                };
+                if (cm != null) cm.registerNetworkCallback(req, wifiNetCallback);
+            } catch (Exception ignored) {
+                wifiNetCallback = null;
+            }
+        }
+    }
+
+    private void unregisterWifiListeners() {
+        try {
+            if (wifiReceiver != null) context.unregisterReceiver(wifiReceiver);
+        } catch (Exception ignored) {
+        }
+        wifiReceiver = null;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null && wifiNetCallback != null) cm.unregisterNetworkCallback(wifiNetCallback);
+        } catch (Exception ignored) {
+        }
+        wifiNetCallback = null;
+    }
+
+    private void offer(Map<String, Object> e) {
+        if (wifiEvents.size() > 5000) wifiEvents.poll(); // app not collecting; keep the newest
+        wifiEvents.add(e);
+    }
+
+    private void queueNet(String what) {
+        Map<String, Object> e = new HashMap<>();
+        e.put("kind", "net");
+        e.put("t", System.currentTimeMillis());
+        e.put("state", what);
+        wifiWorker.execute(() -> {
+            putConnected(e);
+            offer(e);
+        });
+    }
+
+    private void queueState(long t, String source, String state, int error) {
+        if (state == null) return;
+        Map<String, Object> e = new HashMap<>();
+        e.put("kind", source);
+        e.put("t", t);
+        e.put("state", state);
+        if (error != 0) e.put("error", error == 1 ? "Authentication failed" : "Error " + error);
+        putConnected(e);
+        offer(e);
+    }
+
+    /** SSID / BSSID / RSSI / frequency of the network being joined or connected. */
+    @SuppressWarnings("deprecation")
+    @SuppressLint("MissingPermission")
+    private void putConnected(Map<String, Object> e) {
+        try {
+            WifiManager wm = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) return;
+            WifiInfo info = wm.getConnectionInfo();
+            if (info == null) return;
+            String ssid = cleanSsid(info.getSSID());
+            if (ssid != null) e.put("ssid", ssid);
+            String bssid = info.getBSSID();
+            if (bssid != null && !bssid.equals("02:00:00:00:00:00") && !bssid.equals("00:00:00:00:00:00")) e.put("bssid", bssid);
+            int rssi = info.getRssi();
+            if (rssi > -127 && rssi < 0) e.put("rssi", rssi);
+            if (Build.VERSION.SDK_INT >= 21 && info.getFrequency() > 0) e.put("freq", info.getFrequency());
+            if (Build.VERSION.SDK_INT >= 29 && info.isPasspointAp()) e.put("passpoint", true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String cleanSsid(String ssid) {
+        if (ssid == null || ssid.equals("<unknown ssid>") || ssid.isEmpty()) return null;
+        if (ssid.length() >= 2 && ssid.startsWith("\"") && ssid.endsWith("\"")) ssid = ssid.substring(1, ssid.length() - 1);
+        return ssid;
+    }
+
+    /**
+     * One scan's results. "heard" is when each AP's beacon / probe response was
+     * received (ScanResult.timestamp, converted from time since boot to wall clock).
+     */
+    @SuppressWarnings("deprecation")
+    @SuppressLint("MissingPermission")
+    private void queueScan(long t, boolean updated) {
+        scansDelivered++;
+        Map<String, Object> e = new HashMap<>();
+        e.put("kind", "scan");
+        e.put("t", t);
+        e.put("updated", updated);
+        List<Object> aps = new ArrayList<>();
+        try {
+            WifiManager wm = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            List<ScanResult> res = wm == null ? null : wm.getScanResults();
+            long bootToWall = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime();
+            if (res != null) {
+                for (ScanResult r : res) {
+                    Map<String, Object> a = new HashMap<>();
+                    a.put("ssid", r.SSID == null ? "" : r.SSID);
+                    a.put("bssid", r.BSSID);
+                    a.put("rssi", r.level);
+                    a.put("freq", r.frequency);
+                    if (Build.VERSION.SDK_INT >= 17) a.put("heard", bootToWall + r.timestamp / 1000);
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        if (r.isPasspointNetwork()) a.put("passpoint", true);
+                        if (r.operatorFriendlyName != null && r.operatorFriendlyName.length() > 0) {
+                            a.put("operator", r.operatorFriendlyName.toString());
+                        }
+                    }
+                    aps.add(a);
+                }
+            }
+        } catch (Exception ex) {
+            e.put("error", ex.toString());
+        }
+        e.put("aps", aps);
+        putConnected(e);
+        offer(e);
+    }
+
+    /** Bytes sent and received on non-cellular networks (Wi-Fi) since boot. */
+    private void putWifiBytes(Map<String, Object> d) {
+        try {
+            long rx = TrafficStats.getTotalRxBytes(), tx = TrafficStats.getTotalTxBytes();
+            long mrx = TrafficStats.getMobileRxBytes(), mtx = TrafficStats.getMobileTxBytes();
+            if (rx < 0 || tx < 0) return;
+            d.put("wifiRxBytes", rx - Math.max(0, mrx));
+            d.put("wifiTxBytes", tx - Math.max(0, mtx));
+        } catch (Exception ignored) {
         }
     }
 

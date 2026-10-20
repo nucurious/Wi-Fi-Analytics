@@ -36,6 +36,27 @@ class RadioInfo {
     }
   }
 
+  /// Android: Wi-Fi scans and connection steps since the last call, plus Wi-Fi byte counters.
+  static Future<Map<String, dynamic>> wifiEvents() async {
+    try {
+      final m = await _channel.invokeMapMethod<String, dynamic>('getWifiEvents');
+      return m ?? <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  /// Android: asks the phone to scan now. False when Android throttles it
+  /// (4 scans per 2 minutes for an app; testers can turn off "Wi-Fi scan
+  /// throttling" in Developer options).
+  static Future<bool> startWifiScan() async {
+    try {
+      return await _channel.invokeMethod<bool>('startWifiScan') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Android: asks for READ_PHONE_STATE (needed for network type / 5G NSA).
   static Future<bool> requestPhonePermission() async {
     try {

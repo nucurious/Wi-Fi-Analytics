@@ -23,6 +23,7 @@ import 'services/dsds_tracker.dart';
 import 'services/geofence_tracker.dart';
 import 'services/logcat_recorder.dart';
 import 'services/stall_monitor.dart';
+import 'services/wifi_join_tracker.dart';
 import 'services/session_mailer.dart';
 
 class Settings {
@@ -69,6 +70,9 @@ class Settings {
 
   bool recordLogcat; // debug app only: capture logcat during each session
   bool hmnoGeofence; // check the bundled Spectrum HMNO CBRS geofence
+  bool spectrumWifi; // Android: log Wi-Fi scans / joins / time on Spectrum Wi-Fi
+  String spectrumSsids; // comma-separated; an SSID containing any of these counts
+  int wifiScanSeconds; // ask for a Wi-Fi scan this often (0 = only the phone's own scans)
   int logcatPartMb; // rotate logcat files at this size (64 MB gzips to ~6 MB, fits email)
   int logcatParts; // keep this many rotated files (older ones are overwritten)
 
@@ -108,6 +112,9 @@ class Settings {
     this.rotateServers = true,
     this.recordLogcat = true,
     this.hmnoGeofence = true,
+    this.spectrumWifi = true,
+    this.spectrumSsids = 'SpectrumWiFi, Spectrum Mobile',
+    this.wifiScanSeconds = 30,
     this.logcatPartMb = 64,
     this.logcatParts = 50,
     this.testEnvironment = 'auto',
@@ -146,6 +153,9 @@ class Settings {
         'rotateServers': rotateServers,
         'recordLogcat': recordLogcat,
         'hmnoGeofence': hmnoGeofence,
+        'spectrumWifi': spectrumWifi,
+        'spectrumSsids': spectrumSsids,
+        'wifiScanSeconds': wifiScanSeconds,
         'logcatPartMb': logcatPartMb,
         'logcatParts': logcatParts,
         'testEnvironment': testEnvironment,
@@ -195,6 +205,9 @@ class Settings {
       rotateServers: j['rotateServers'] as bool? ?? d.rotateServers,
       recordLogcat: j['recordLogcat'] as bool? ?? d.recordLogcat,
       hmnoGeofence: j['hmnoGeofence'] as bool? ?? d.hmnoGeofence,
+      spectrumWifi: j['spectrumWifi'] as bool? ?? d.spectrumWifi,
+      spectrumSsids: j['spectrumSsids'] as String? ?? d.spectrumSsids,
+      wifiScanSeconds: (j['wifiScanSeconds'] as num?)?.toInt() ?? d.wifiScanSeconds,
       logcatPartMb: (j['logcatPartMb'] as num?)?.toInt() ?? d.logcatPartMb,
       logcatParts: (j['logcatParts'] as num?)?.toInt() ?? d.logcatParts,
       testEnvironment: j['testEnvironment'] as String? ?? d.testEnvironment,
@@ -276,6 +289,7 @@ class AppState extends ChangeNotifier {
     await store.init();
     stalls.start();
     settings = Settings.fromJson(await store.loadSettings());
+    wifiJoin.patterns = WifiJoinTracker.parsePatterns(settings.spectrumSsids);
     await _loadHmnoGeofence();
     sites = await store.loadSites();
     final activeId = (await store.loadSettings())['activeSiteId'] as String?;
@@ -293,6 +307,7 @@ class AppState extends ChangeNotifier {
     _radioTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollRadio());
     if (Platform.isAndroid) {
       _dsdsTimer = Timer.periodic(const Duration(milliseconds: 250), (_) => _pollDsds());
+      _wifiTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollWifi());
     }
     _trackTimer = Timer.periodic(const Duration(seconds: 1), (_) => _logTrack());
     // Write buffered rows to disk regularly, so a crash or dead battery during
@@ -620,6 +635,195 @@ class AppState extends ChangeNotifier {
     return SheetSource('Transition performance', f.path);
   }
 
+  // ------------------------------------------------------------------ Spectrum Wi-Fi joins
+
+  /// Android: Spectrum Mobile Wi-Fi seen in scans, time to join it, time on it.
+  final wifiJoin = WifiJoinTracker(const []);
+  Timer? _wifiTimer;
+  bool _wifiBusy = false;
+  DateTime? _lastScanAsk;
+  bool? lastScanAccepted; // false = Android throttled the scan request
+
+  Future<void> _pollWifi() async {
+    if (_wifiBusy || !settings.spectrumWifi) return;
+    _wifiBusy = true;
+    try {
+      final now = DateTime.now();
+      final every = settings.wifiScanSeconds;
+      if (every > 0 && (_lastScanAsk == null || now.difference(_lastScanAsk!).inSeconds >= every)) {
+        _lastScanAsk = now;
+        wifiJoin.lastScanRequest = now;
+        lastScanAccepted = await RadioInfo.startWifiScan();
+      }
+      final raw = await RadioInfo.wifiEvents();
+      var changed = false;
+      wifiJoin.update(
+        raw,
+        now: DateTime.now(),
+        radioSsid: radio.wifiSsid,
+        radioOnWifi: radio.isWifi,
+        onOpen: (v) {
+          v.contextAtHeard = _wifiContext();
+          changed = true;
+          return v;
+        },
+        onScan: (s) {
+          String ap(WifiAp a) => '${a.ssid} ${a.bssid} ${a.rssi} dBm ch${a.channel}';
+          final best = s.spectrum.first;
+          final heardAge = best.heard == null ? null : s.time.difference(best.heard!).inMilliseconds / 1000;
+          store.addWifiScan([
+            s.time.toUtc().toIso8601String(),
+            _local(s.time),
+            s.scanNo,
+            s.updated ? 'new' : 'cached',
+            s.requestedByApp ? 'app' : 'phone',
+            s.apsTotal,
+            s.spectrum.length,
+            s.spectrum.map((a) => a.ssid).toSet().join(' | '),
+            best.ssid,
+            best.bssid,
+            best.rssi,
+            best.channel,
+            best.band,
+            best.passpoint ? 'yes' : 'no',
+            best.operator,
+            heardAge?.toStringAsFixed(2),
+            s.spectrum.take(12).map(ap).join('; '),
+            s.connectedSsid,
+            s.connectedBssid,
+            wifiJoin.isSpectrum(s.connectedSsid) ? 'yes' : 'no',
+            s.visit?.id,
+            s.visit?.state,
+            ..._wifiContext(),
+          ]);
+          changed = true;
+        },
+        onState: (e) {
+          store.addWifiState([
+            e.time.toUtc().toIso8601String(),
+            _local(e.time),
+            e.source,
+            e.state,
+            e.error,
+            e.ssid,
+            e.bssid,
+            e.rssi,
+            e.freq == null ? null : wifiChannel(e.freq!),
+            e.freq == null ? null : wifiBand(e.freq!),
+            e.spectrum ? 'yes' : 'no',
+            e.visit?.id,
+            e.visit?.state,
+            running ? profile.label : null,
+            running ? 1 : 0,
+          ]);
+          changed = true;
+        },
+        onConnected: (v) {
+          v.contextAtConnect = _wifiContext();
+          changed = true;
+        },
+        onClosed: (v) {
+          _writeVisit(v, DateTime.now());
+          changed = true;
+        },
+      );
+      if (changed) notifyListeners();
+    } catch (_) {
+      // Not available on this phone; ignore.
+    } finally {
+      _wifiBusy = false;
+    }
+  }
+
+  /// Profile, test, data SIM, HMNO geofence and GPS for Wi-Fi rows.
+  List<Object?> _wifiContext() {
+    final p = position;
+    return [
+      running ? profile.label : null,
+      running ? 1 : 0,
+      running ? phase : null,
+      activeSite?.id,
+      radio.connection,
+      radio.raw['dataSimSlot'],
+      radio.raw['dataPlmn'],
+      geofence.inHmno == null ? null : (geofence.inHmno! ? 'yes' : 'no'),
+      p?.latitude.toStringAsFixed(7),
+      p?.longitude.toStringAsFixed(7),
+      p?.accuracy.toStringAsFixed(1),
+      p == null || p.speed < 0 ? null : (p.speed * 3.6).toStringAsFixed(1),
+    ];
+  }
+
+  /// One row per visit on the "Spectrum Wi-Fi visits" sheet.
+  void _writeVisit(SpectrumVisit v, DateTime now, {bool open = false}) {
+    String? u(DateTime? t) => t?.toUtc().toIso8601String();
+    String? s(double? x) => x?.toStringAsFixed(3);
+    final conn = v.connectedSeconds(now);
+    final mb = (v.rxBytes + v.txBytes) / 1e6;
+    store.addVisit([
+      v.id,
+      open ? (v.connected != null ? 'Still connected at session end' : 'Still heard at session end') : v.endReason,
+      v.firstSsid,
+      v.connSsid,
+      v.passpoint ? 'yes' : 'no',
+      u(v.firstHeard),
+      _local(v.firstHeard),
+      u(v.firstScan),
+      v.firstBssid,
+      v.firstRssi,
+      v.firstFreq == null ? null : wifiChannel(v.firstFreq!),
+      v.firstFreq == null ? null : wifiBand(v.firstFreq!),
+      v.scansBeforeConnect,
+      v.bestRssi,
+      u(v.assocStart),
+      u(v.authStart),
+      u(v.ipStart),
+      u(v.connected),
+      u(v.validated),
+      s(v.timeToConnect),
+      s(v.heardToAssoc),
+      s(v.assocAuth),
+      s(v.ipTime),
+      s(v.toValidated),
+      v.attempts,
+      v.failures,
+      v.lastFailure,
+      v.connBssid,
+      v.connRssi,
+      v.connFreq == null ? null : wifiChannel(v.connFreq!),
+      v.connFreq == null ? null : wifiBand(v.connFreq!),
+      v.roams,
+      v.bssids.length,
+      u(v.disconnected ?? (open ? null : v.lastSeen)),
+      conn?.toStringAsFixed(1),
+      v.activeSeconds.toStringAsFixed(1),
+      conn == null || conn == 0 ? null : (100 * v.activeSeconds / conn).toStringAsFixed(1),
+      (v.rxBytes / 1e6).toStringAsFixed(3),
+      (v.txBytes / 1e6).toStringAsFixed(3),
+      v.activeSeconds == 0 ? null : (mb * 8 / v.activeSeconds).toStringAsFixed(2),
+      v.atStart ? 'yes' : 'no',
+      ...v.contextAtHeard.isEmpty ? List<Object?>.filled(12, null) : v.contextAtHeard,
+      ...(v.contextAtConnect.isEmpty ? List<Object?>.filled(12, null) : v.contextAtConnect).skip(4),
+    ]);
+  }
+
+  /// This session's Spectrum Wi-Fi statistics for the "Wi-Fi join performance" sheet.
+  Future<SheetSource?> _wifiJoinSummarySheet(DateTime end) async {
+    if (!Platform.isAndroid || !settings.spectrumWifi) return null;
+    String q(Object? v) {
+      final s = v?.toString() ?? '';
+      return RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
+    }
+
+    final b = StringBuffer()..writeln(WifiJoinTracker.summaryHeader.map(q).join(','));
+    for (final r in wifiJoin.summary(end)) {
+      b.writeln(r.map(q).join(','));
+    }
+    final f = File('${store.directory.path}/wifi_join_summary_session.csv');
+    await f.writeAsString(b.toString());
+    return SheetSource('Wi-Fi join performance', f.path);
+  }
+
   // ------------------------------------------------------------------ sites
 
   /// [latitude]/[longitude] typed in; otherwise the current GPS position.
@@ -682,6 +886,7 @@ class AppState extends ChangeNotifier {
   Future<void> updateSettings(Settings s) async {
     final reloadFence = s.hmnoGeofence != settings.hmnoGeofence;
     settings = s;
+    wifiJoin.patterns = WifiJoinTracker.parsePatterns(s.spectrumSsids);
     if (reloadFence) await _loadHmnoGeofence();
     await _saveSettings();
     notifyListeners();
@@ -1389,6 +1594,7 @@ class AppState extends ChangeNotifier {
     _activeServer = null;
     _activeByTest.clear();
     dsds.startSession(_sessionStart!);
+    wifiJoin.startSession(_sessionStart!);
     sessionGaps.clear();
     _dlLastArrival = null;
     _probeLostStart = null;
@@ -1452,6 +1658,17 @@ class AppState extends ChangeNotifier {
           'adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat');
     }
     final dsdsSheet = await _dsdsSummarySheet(end);
+    final joinSheet = await _wifiJoinSummarySheet(end);
+    if (Platform.isAndroid && settings.spectrumWifi) {
+      final vs = wifiJoin.visitsForSummary();
+      final joined = vs.where((v) => v.timeToConnect != null).map((v) => v.timeToConnect!).toList()..sort();
+      b.writeln('Spectrum Wi-Fi: ${wifiJoin.sessionScansWithSpectrum} of ${wifiJoin.sessionScans} scans heard it; '
+          '${vs.length} visits, ${joined.length} joined'
+          '${joined.isEmpty ? '' : ' (time to connect median ${joined[joined.length ~/ 2].toStringAsFixed(1)} s)'}; '
+          'sheets Wi-Fi scans, Spectrum Wi-Fi visits, Wi-Fi join performance.');
+      if (wifiJoin.visit != null) _writeVisit(wifiJoin.visit!, end, open: true);
+      await store.flush();
+    }
     final dsdsCounts = <String, int>{};
     for (final e in dsds.sessionEvents) {
       final k = e.direction.isEmpty ? e.event : '${e.direction}${e.success == false ? ' failed' : ''}';
@@ -1471,7 +1688,7 @@ class AppState extends ChangeNotifier {
         subject: '$kAppName: $prefix',
         body: b.toString(),
         extraFiles: logcatFiles,
-        extraSheets: [if (dsdsSheet != null) dsdsSheet],
+        extraSheets: [if (dsdsSheet != null) dsdsSheet, if (joinSheet != null) joinSheet],
       );
       if (queued) {
         // logcat's session_info.txt belongs with the run too.
@@ -1751,6 +1968,7 @@ class AppState extends ChangeNotifier {
     _positionSub?.cancel();
     _radioTimer?.cancel();
     _dsdsTimer?.cancel();
+    _wifiTimer?.cancel();
     _trackTimer?.cancel();
     _flushTimer?.cancel();
     stalls.stop();

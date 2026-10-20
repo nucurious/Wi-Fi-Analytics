@@ -34,8 +34,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
-  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno;
-  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts;
+  late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno, _spWifi;
+  late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts, _spSsids, _scanSec;
   late String _env;
   bool _showPass = false;
   late String _driveDir;
@@ -79,6 +79,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _rotate = s.rotateServers;
     _logcat = s.recordLogcat;
     _hmno = s.hmnoGeofence;
+    _spWifi = s.spectrumWifi;
+    _spSsids = TextEditingController(text: s.spectrumSsids);
+    _scanSec = TextEditingController(text: '${s.wifiScanSeconds}');
     _lcMb = TextEditingController(text: '${s.logcatPartMb}');
     _lcParts = TextEditingController(text: '${s.logcatParts}');
     _repeatGap = TextEditingController(text: '${s.repeatIntervalSeconds}');
@@ -154,6 +157,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       rotateServers: _rotate,
       recordLogcat: _logcat,
       hmnoGeofence: _hmno,
+      spectrumWifi: _spWifi,
+      spectrumSsids: _spSsids.text.trim(),
+      wifiScanSeconds: int.parse(_scanSec.text),
       logcatPartMb: int.parse(_lcMb.text),
       logcatParts: int.parse(_lcParts.text),
       testEnvironment: _env,
@@ -400,6 +406,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _scheduleAutoSave();
             },
           ),
+          if (Platform.isAndroid)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Spectrum Mobile Wi-Fi: scans, join time, time on it'),
+              subtitle: const Text('Logs every scan that hears a Spectrum SSID, the time from first heard to connected '
+                  '(with association, authentication and IP steps), and time and traffic on it.'),
+              value: _spWifi,
+              onChanged: (v) {
+                setState(() => _spWifi = v);
+                _scheduleAutoSave();
+              },
+            ),
+          if (Platform.isAndroid && _spWifi)
+            TextFormField(
+              controller: _spSsids,
+              decoration: const InputDecoration(
+                  labelText: 'Spectrum SSIDs',
+                  helperText: 'Comma-separated; an SSID containing any of these counts (not case-sensitive). '
+                      'Passpoint networks run by "Spectrum" always count.',
+                  helperMaxLines: 3),
+            ),
+          if (Platform.isAndroid && _spWifi)
+            _intField(_scanSec, 'Ask for a Wi-Fi scan every (seconds, 0 = phone\'s own scans only)', min: 0, max: 3600,
+                helper: 'Android allows an app 4 scans per 2 minutes (30 s). For faster scans turn off '
+                    'Developer options > Wi-Fi scan throttling.'),
           if (kDebugApp)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

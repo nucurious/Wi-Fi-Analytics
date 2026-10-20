@@ -34,6 +34,9 @@ class SessionMailer {
     DataStore.dsdsFile,
     DataStore.stallsFile,
     DataStore.gapsFile,
+    DataStore.visitsFile,
+    DataStore.wifiScansFile,
+    DataStore.wifiStatesFile,
   ];
 
   Directory get outbox => Directory('${store.directory.path}/outbox');

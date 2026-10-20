@@ -54,6 +54,7 @@ void _patchAndroidManifest() {
     'android.permission.INTERNET',
     'android.permission.ACCESS_NETWORK_STATE',
     'android.permission.ACCESS_WIFI_STATE',
+    'android.permission.CHANGE_WIFI_STATE',
     'android.permission.READ_PHONE_STATE',
     'android.permission.ACCESS_FINE_LOCATION',
     'android.permission.ACCESS_COARSE_LOCATION',

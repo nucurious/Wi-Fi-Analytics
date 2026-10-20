@@ -30,6 +30,9 @@ class DataStore {
   static const dsdsFile = 'dsds_transitions.csv';
   static const stallsFile = 'ui_stalls.csv';
   static const gapsFile = 'traffic_gaps.csv';
+  static const wifiScansFile = 'wifi_scans.csv';
+  static const wifiStatesFile = 'wifi_states.csv';
+  static const visitsFile = 'spectrum_wifi_visits.csv';
   static const sitesFile = 'sites.csv';
   static const sitesJson = 'sites.json';
   static const settingsJson = 'settings.json';
@@ -67,6 +70,35 @@ class DataStore {
     'start_utc', 'end_utc', 'start_local', 'duration_s', 'source', 'test_type', 'profile',
     'data_sim_slot', 'data_plmn', 'cell_ipv6', 'cell_ipv4', 'connection', 'rat', 'in_hmno_geofence',
     'latitude', 'longitude', 'speed_kmh',
+  ];
+
+  static final wifiScansHeader = <String>[
+    'time_utc', 'time_local', 'scan_no', 'results', 'scan_by', 'aps_in_scan', 'spectrum_aps', 'spectrum_ssids',
+    'best_ssid', 'best_bssid', 'best_rssi_dbm', 'best_channel', 'best_band', 'best_passpoint', 'best_operator',
+    'best_heard_age_s', 'spectrum_aps_list', 'connected_ssid', 'connected_bssid', 'connected_to_spectrum',
+    'visit_id', 'visit_state',
+    'profile', 'test_running', 'test_type', 'site_id', 'default_connection', 'data_sim_slot', 'data_plmn', 'in_hmno_geofence', 'latitude', 'longitude', 'gps_accuracy_m', 'speed_kmh',
+  ];
+
+  static final wifiStatesHeader = <String>[
+    'time_utc', 'time_local', 'source', 'state', 'error', 'ssid', 'bssid', 'rssi_dbm', 'channel', 'band',
+    'spectrum', 'visit_id', 'visit_state', 'profile', 'test_running',
+  ];
+
+  static final visitsHeader = <String>[
+    'visit_id', 'end_reason', 'first_ssid', 'connected_ssid', 'passpoint',
+    'first_heard_utc', 'first_heard_local', 'first_scan_utc', 'first_bssid', 'first_rssi_dbm', 'first_channel', 'first_band',
+    'scans_before_connect', 'best_rssi_before_connect',
+    'join_start_utc', 'auth_start_utc', 'ip_request_utc', 'connected_utc', 'validated_utc',
+    'time_to_connect_s', 'heard_to_join_start_s', 'assoc_auth_s', 'ip_dhcp_s', 'connected_to_validated_s',
+    'join_attempts', 'failed_attempts', 'last_failure',
+    'connected_bssid', 'connected_rssi_dbm', 'connected_channel', 'connected_band', 'roams', 'bssids_used',
+    'left_utc', 'connected_time_s', 'traffic_time_s', 'traffic_pct', 'down_mb', 'up_mb', 'avg_mbps_while_sending',
+    'connected_at_start',
+    'profile', 'test_running', 'test_type', 'site_id', 'default_connection', 'data_sim_slot', 'data_plmn', 'in_hmno_geofence',
+    'latitude', 'longitude', 'gps_accuracy_m', 'speed_kmh',
+    'connect_default_connection', 'connect_data_sim_slot', 'connect_data_plmn', 'connect_in_hmno_geofence',
+    'connect_latitude', 'connect_longitude', 'connect_gps_accuracy_m', 'connect_speed_kmh',
   ];
 
   static final stallsHeader = <String>[
@@ -160,6 +192,9 @@ class DataStore {
   void addDsds(List<Object?> row) => _append(dsdsFile, dsdsHeader, row);
   void addStall(List<Object?> row) => _append(stallsFile, stallsHeader, row);
   void addGap(List<Object?> row) => _append(gapsFile, gapsHeader, row);
+  void addWifiScan(List<Object?> row) => _append(wifiScansFile, wifiScansHeader, row);
+  void addWifiState(List<Object?> row) => _append(wifiStatesFile, wifiStatesHeader, row);
+  void addVisit(List<Object?> row) => _append(visitsFile, visitsHeader, row);
 
   /// Appends buffered rows to the files. Flushes run one after another, and
   /// new rows go into the buffer meanwhile, so writes never collide (the old
@@ -246,7 +281,7 @@ class DataStore {
   Future<List<File>> exportFiles() async {
     await flush();
     final out = <File>[];
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, gapsFile, sitesFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, gapsFile, visitsFile, wifiScansFile, wifiStatesFile, sitesFile]) {
       final f = file(name);
       if (await f.exists() && await f.length() > 0) out.add(f);
     }
@@ -306,6 +341,9 @@ class DataStore {
     geofenceFile: 'Geofence',
     dsdsFile: 'DSDS transitions',
     gapsFile: 'Traffic gaps',
+    visitsFile: 'Spectrum Wi-Fi visits',
+    wifiScansFile: 'Wi-Fi scans',
+    wifiStatesFile: 'Wi-Fi connection steps',
     stallsFile: 'UI stalls',
     sitesFile: 'Sites',
   };
@@ -313,7 +351,7 @@ class DataStore {
   /// Deletes test, sample and track logs. Sites are kept.
   Future<void> clearLogs() async {
     await _closeAll();
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, gapsFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, gapsFile, visitsFile, wifiScansFile, wifiStatesFile]) {
       final f = file(name);
       if (await f.exists()) await f.delete();
     }
