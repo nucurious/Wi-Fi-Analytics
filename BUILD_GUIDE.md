@@ -29,6 +29,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 - [Test servers and automatic switching](#test-servers-and-automatic-switching)
 - [Traffic profiles (Test tab)](#traffic-profiles-test-tab)
 - [Geofence and dual-SIM (DSDS) logs](#geofence-and-dual-sim-dsds-logs)
+- [Spectrum Mobile Wi-Fi: scans, time to connect, time on it](#spectrum-mobile-wi-fi-scans-time-to-connect-time-on-it)
 - [Emailing results automatically](#emailing-results-automatically)
 - [Overnight and weekend runs](#overnight-and-weekend-runs)
 - [What the app records on each platform](#what-the-app-records-on-each-platform)
@@ -50,6 +51,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 2.2 | Oct 19, 2026 | b5ec863 | Spectrum HMNO CBRS geofence (541 areas); Hand In / Hand Out transition performance. |
 | 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
+| 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 
 ## App and script versions
 
@@ -67,9 +69,11 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.3 | Oct 19, 2026 | 1def654 | Stop ends the test at once: connection attempts cancelled, final result exchange limited to 3 s, quick latency stop; button shows Stopping. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.4 | Oct 19, 2026 | e28d220, 242c053 | Tests with no data for 15 s end with an error instead of running at 0 Mbps; walk tests skipped on Wi-Fi without internet; no false Data lost while on Wi-Fi. One folder per test run (workbook, summary, logcat) with Export buttons on the Test and Data screens. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.5 | Oct 20, 2026 | e82a255 | Survives data-SIM switches: the test restarts on a network change instead of failing (Send failed: Network is unreachable). UDP duration 0 runs download and upload together until Stop. User-plane interruption from the traffic (UDP packet gaps over 0.3 s, lost latency probes): Traffic gaps sheet and UP rows in Transition performance. Settings save automatically. |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.6 | Oct 20, 2026 | 357ba31 (current) | Public iperf3 servers only: lab server shortcuts removed; saved lab addresses move to Clouvider Dallas (default dal.speedtest.clouvider.net:5200). |
-| Analytics_debug_ver1.0 (Android) | 1.0.3 to 1.0.6 | Oct 19-20, 2026 | 1def654 to 357ba31 (current) | Same as 1.3.3 to 1.3.6, plus logcat as before (logcat stored in each run folder). |
-| Wi-Fi Analytics (iPhone) | 1.3.6 (code) | Oct 20, 2026 | 357ba31 | Same code as Android 1.3.6 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.6 | Oct 20, 2026 | 357ba31 | Public iperf3 servers only: lab server shortcuts removed; saved lab addresses move to Clouvider Dallas (default dal.speedtest.clouvider.net:5200). |
+| Analytics_debug_ver1.0 (Android) | 1.0.3 to 1.0.6 | Oct 19-20, 2026 | 1def654 to 357ba31 | Same as 1.3.3 to 1.3.6, plus logcat as before (logcat stored in each run folder). |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.7 | Oct 20, 2026 | 9270aa1 (current) | Spectrum Mobile Wi-Fi: every scan that hears a Spectrum SSID (Wi-Fi scans sheet); per visit, time from first heard to connected with association, authentication, IP and internet-validated steps, join failures, time connected and time sending traffic, MB (Spectrum Wi-Fi visits); Wi-Fi connection steps; Wi-Fi join performance per session. App asks for a scan every 30 s. |
+| Analytics_debug_ver1.0 (Android) | 1.0.7 | Oct 20, 2026 | 9270aa1 (current) | Same as 1.3.7, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.7 (code) | Oct 20, 2026 | 9270aa1 | Same code as Android 1.3.7 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
@@ -233,6 +237,19 @@ Every row records the `profile`, and `tests.csv` records the `trigger` (for exam
 **Geofence:** the Spectrum HMNO CBRS geofence (GeoFence_20260708.json, 541 areas) is built in: entering and leaving it is logged with the CBSD area (Settings → Logging to turn it off). Also, every saved site with coordinates is a geofence. Set the radius when adding the site (default 100 m; sites can also be added at typed coordinates) or long-press a site to change it. With the app open, **Entered** and **Exited** are logged (10 m margin against GPS jitter; fixes worse than 50 m ignored) on the **Geofence** sheet with time, site, distance, time inside, GPS and radio. The last event shows on the Test screen.
 
 **Dual SIM (Android):** the app reads every second which SIM carries mobile data (slot, carrier, PLMN) and the cellular IP addresses. **SIM switch**, **IP change**, **Data interrupted** and **Data lost** go to the **DSDS transitions** sheet with the gap without a cellular IP, time on the previous SIM, both SIMs, addresses and the IP owner (Spectrum Mobile on Verizon, Spectrum HMNO, Verizon Wireless …). Each switch is **Hand In** (onto HMNO) or **Hand Out**, successful or failed, with its switch time. The session email adds a **Transition performance** sheet in the same layout as the Transition Performance report: Switch Count, Successful switches, Mean, Median, Min, Max, Std Dev per direction. Needs the **Phone** permission; iPhones don't expose this.
+
+## Spectrum Mobile Wi-Fi: scans, time to connect, time on it
+
+Android only (iPhones don't give apps scan results or connection steps). On by default: Settings → Logging → **Spectrum Mobile Wi-Fi**.
+
+- **Which SSIDs:** any SSID containing an entry of **Spectrum SSIDs** (default `SpectrumWiFi, Spectrum Mobile`, so SpectrumWiFi Plus counts), plus Passpoint networks run by Spectrum. Edit the list in Settings.
+- **Scans:** every scan the phone makes is read, and the app asks for one every 30 s (Android's limit for apps is 4 per 2 minutes; for faster scans turn off **Developer options → Wi-Fi scan throttling** on test phones). Each scan that hears a Spectrum SSID is a row on **Wi-Fi scans**: the APs, signal, channel and when each beacon / probe response was heard. The phone's own probe requests are not visible to apps.
+- **Visits:** from the first scan that hears Spectrum to joining it and leaving it, one row on **Spectrum Wi-Fi visits**: **time to connect** (first heard → connected) split into heard → join start, association + authentication, IP (DHCP) and connected → internet validated; join attempts and failures; AP, roams; **time connected**, **time sending traffic** (seconds with over 2 kB/s on Wi-Fi) and MB down / up.
+- **Wi-Fi connection steps** lists every step Android reported (any SSID), to check the timing.
+- The session email adds **Wi-Fi join performance**: counts, and mean / median / min / max / std dev of each time.
+- The Test screen shows the live status, e.g. `SpectrumWiFi Plus: joined in 4.2 s, on it 3m 10s, active 1m 2s, 45.1 MB`.
+
+Times are app-level (a few hundred ms resolution); use a sniffer or wpa_supplicant logs (debug app logcat) for exact 802.11 timing.
 
 ## Emailing results automatically
 

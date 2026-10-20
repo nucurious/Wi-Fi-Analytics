@@ -14,8 +14,11 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `dsds_transitions.csv` | Dual-SIM data transition (Android) |
 | `ui_stalls.csv` | UI freeze longer than 0.7 s |
 | `traffic_gaps.csv` | User-plane interruption seen in the traffic (UDP download packet gap > 0.3 s, or 2+ latency probes lost in a row) |
+| `spectrum_wifi_visits.csv` | Visit to Spectrum Mobile Wi-Fi: first heard, time to connect (with each join step), time connected and sending traffic (Android) |
+| `wifi_scans.csv` | Wi-Fi scan that heard a Spectrum SSID (Android) |
+| `wifi_states.csv` | Wi-Fi connection step reported by Android (Android) |
 
-The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Traffic gaps, UI stalls, Sites; the session email also has a Transition performance sheet (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
+The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Traffic gaps, UI stalls, Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Sites; the session email also has Transition performance and Wi-Fi join performance sheets (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
 Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 
@@ -36,6 +39,11 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 - [dsds_transitions.csv (sheet "DSDS transitions", Android)](#dsds_transitionscsv-sheet-dsds-transitions-android)
 - [Transition performance (sheet in the session email, Android)](#transition-performance-sheet-in-the-session-email-android)
 - [ui_stalls.csv (sheet "UI stalls")](#ui_stallscsv-sheet-ui-stalls)
+- [traffic_gaps.csv (sheet "Traffic gaps")](#traffic_gapscsv-sheet-traffic-gaps)
+- [spectrum_wifi_visits.csv (sheet "Spectrum Wi-Fi visits", Android)](#spectrum_wifi_visitscsv-sheet-spectrum-wi-fi-visits-android)
+- [wifi_scans.csv (sheet "Wi-Fi scans", Android)](#wifi_scanscsv-sheet-wi-fi-scans-android)
+- [wifi_states.csv (sheet "Wi-Fi connection steps", Android)](#wifi_statescsv-sheet-wi-fi-connection-steps-android)
+- [Wi-Fi join performance (sheet in the session email, Android)](#wi-fi-join-performance-sheet-in-the-session-email-android)
 
 ## Document versions
 
@@ -49,6 +57,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 2.2 | Oct 19, 2026 | b5ec863 | Spectrum HMNO CBRS geofence (541 areas); Hand In / Hand Out transition performance. |
 | 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
+| 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 
 ## App and script versions
 
@@ -66,9 +75,11 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.3 | Oct 19, 2026 | 1def654 | Stop ends the test at once: connection attempts cancelled, final result exchange limited to 3 s, quick latency stop; button shows Stopping. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.4 | Oct 19, 2026 | e28d220, 242c053 | Tests with no data for 15 s end with an error instead of running at 0 Mbps; walk tests skipped on Wi-Fi without internet; no false Data lost while on Wi-Fi. One folder per test run (workbook, summary, logcat) with Export buttons on the Test and Data screens. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.5 | Oct 20, 2026 | e82a255 | Survives data-SIM switches: the test restarts on a network change instead of failing (Send failed: Network is unreachable). UDP duration 0 runs download and upload together until Stop. User-plane interruption from the traffic (UDP packet gaps over 0.3 s, lost latency probes): Traffic gaps sheet and UP rows in Transition performance. Settings save automatically. |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.6 | Oct 20, 2026 | 357ba31 (current) | Public iperf3 servers only: lab server shortcuts removed; saved lab addresses move to Clouvider Dallas (default dal.speedtest.clouvider.net:5200). |
-| Analytics_debug_ver1.0 (Android) | 1.0.3 to 1.0.6 | Oct 19-20, 2026 | 1def654 to 357ba31 (current) | Same as 1.3.3 to 1.3.6, plus logcat as before (logcat stored in each run folder). |
-| Wi-Fi Analytics (iPhone) | 1.3.6 (code) | Oct 20, 2026 | 357ba31 | Same code as Android 1.3.6 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.6 | Oct 20, 2026 | 357ba31 | Public iperf3 servers only: lab server shortcuts removed; saved lab addresses move to Clouvider Dallas (default dal.speedtest.clouvider.net:5200). |
+| Analytics_debug_ver1.0 (Android) | 1.0.3 to 1.0.6 | Oct 19-20, 2026 | 1def654 to 357ba31 | Same as 1.3.3 to 1.3.6, plus logcat as before (logcat stored in each run folder). |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.7 | Oct 20, 2026 | 9270aa1 (current) | Spectrum Mobile Wi-Fi: every scan that hears a Spectrum SSID (Wi-Fi scans sheet); per visit, time from first heard to connected with association, authentication, IP and internet-validated steps, join failures, time connected and time sending traffic, MB (Spectrum Wi-Fi visits); Wi-Fi connection steps; Wi-Fi join performance per session. App asks for a scan every 30 s. |
+| Analytics_debug_ver1.0 (Android) | 1.0.7 | Oct 20, 2026 | 9270aa1 (current) | Same as 1.3.7, plus logcat as before. |
+| Wi-Fi Analytics (iPhone) | 1.3.7 (code) | Oct 20, 2026 | 9270aa1 | Same code as Android 1.3.7 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
@@ -291,3 +302,74 @@ User-plane interruptions measured from the traffic itself.
 | test_type, profile | What was running |
 | data_sim_slot, data_plmn, cell_ipv6, cell_ipv4, connection, rat, in_hmno_geofence | Network when the gap was logged (after it ended) |
 | latitude, longitude, speed_kmh | Position |
+
+## spectrum_wifi_visits.csv (sheet "Spectrum Wi-Fi visits", Android)
+
+One row per visit to Spectrum Mobile Wi-Fi: from the first scan that hears a Spectrum SSID, through joining it, to leaving it (or losing sight of it without joining). An SSID counts when it contains one of Settings → Logging → Spectrum SSIDs (default `SpectrumWiFi, Spectrum Mobile`, not case-sensitive) or is a Passpoint network whose operator is Spectrum.
+
+| Column | Meaning |
+|---|---|
+| visit_id | Counter since the app started |
+| end_reason | Disconnected, Moved to another Wi-Fi (SSID), Seen, not connected (not heard in 2 scans and 30 s), Seen, connect failed, Still connected / Still heard at session end (written when a session stops; the visit gets a final row when it ends) |
+| first_ssid, connected_ssid, passpoint | SSID first heard and SSID joined; Passpoint (Hotspot 2.0) network |
+| first_heard_utc, first_heard_local | When the first Spectrum AP's beacon / probe response was received (the scan result's own time stamp, at most 30 s before the scan was delivered) |
+| first_scan_utc | When that scan was delivered to the app (blank = the phone joined before any scan showed it, e.g. Passpoint from the phone's own background scan) |
+| first_bssid, first_rssi_dbm, first_channel, first_band | The AP first heard |
+| scans_before_connect, best_rssi_before_connect | Scans that heard Spectrum before the join, and the strongest signal among them |
+| join_start_utc | First step of the join: CONNECTING / ASSOCIATING |
+| auth_start_utc | AUTHENTICATING / FOUR_WAY_HANDSHAKE (EAP or WPA handshake) |
+| ip_request_utc | OBTAINING_IPADDR (DHCP) |
+| connected_utc | CONNECTED (IP address assigned) |
+| validated_utc | Android confirmed internet access on it |
+| time_to_connect_s | first_heard → connected: the main KPI |
+| heard_to_join_start_s | first_heard → join_start (how long the phone waited before trying) |
+| assoc_auth_s | join_start → ip_request: 802.11 association + authentication |
+| ip_dhcp_s | ip_request → connected |
+| connected_to_validated_s | connected → internet validated |
+| join_attempts, failed_attempts, last_failure | Join attempts in this visit; attempts that ended without a connection (e.g. Authentication failed) |
+| connected_bssid, connected_rssi_dbm, connected_channel, connected_band | AP joined (connected_bssid follows roams) |
+| roams, bssids_used | BSSID changes while connected; distinct BSSIDs used |
+| left_utc | Disconnected (or last heard, for visits not joined) |
+| connected_time_s | connected → left |
+| traffic_time_s, traffic_pct | Seconds while connected with over 2,000 bytes/s on Wi-Fi (sending or receiving), and their share of connected_time_s |
+| down_mb, up_mb, avg_mbps_while_sending | Wi-Fi bytes while connected (all apps), and the rate during traffic seconds |
+| connected_at_start | yes = already on Spectrum Wi-Fi when the app started (no join timing) |
+| profile, test_running, test_type, site_id, default_connection, data_sim_slot, data_plmn, in_hmno_geofence, latitude, longitude, gps_accuracy_m, speed_kmh | When first heard |
+| connect_default_connection … connect_speed_kmh | The same, when it connected |
+
+Times are app-level, from Android's scan results and Wi-Fi connection broadcasts: good to a few hundred ms, coarser than a sniffer or a wpa_supplicant log. The phone's own probe requests are not visible to apps; what is logged is each AP the scans heard (beacon or probe response) and when.
+
+## wifi_scans.csv (sheet "Wi-Fi scans", Android)
+
+One row per Wi-Fi scan that heard at least one Spectrum SSID. Scans come from the phone itself (screen on, roaming, PNO) and from the app (Settings → Logging → Ask for a Wi-Fi scan every N seconds, default 30; Android allows an app 4 scans per 2 minutes unless Developer options → Wi-Fi scan throttling is off).
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | Scan delivered to the app |
+| scan_no | Counter of all scans since the app started (with or without Spectrum) |
+| results | new, or cached (Android returned old results: scan throttled or failed) |
+| scan_by | app (within 10 s of the app's request) or phone |
+| aps_in_scan, spectrum_aps, spectrum_ssids | APs in the scan; Spectrum APs; their SSIDs |
+| best_ssid, best_bssid, best_rssi_dbm, best_channel, best_band, best_passpoint, best_operator | Strongest Spectrum AP |
+| best_heard_age_s | How long before delivery its beacon / probe response was heard |
+| spectrum_aps_list | Up to 12 Spectrum APs: SSID BSSID RSSI channel |
+| connected_ssid, connected_bssid, connected_to_spectrum | Wi-Fi the phone was on |
+| visit_id, visit_state | Visit this scan belongs to: Seen, Connecting, Connected |
+| profile … speed_kmh | Same context columns as the visit (first heard) |
+
+## wifi_states.csv (sheet "Wi-Fi connection steps", Android)
+
+Every Wi-Fi connection step Android reports, for any SSID, to check a visit's timing.
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | When Android reported it |
+| source | network (CONNECTING, AUTHENTICATING, OBTAINING_IPADDR, CONNECTED, DISCONNECTED …), supplicant (ASSOCIATING, ASSOCIATED, FOUR_WAY_HANDSHAKE, COMPLETED, DISCONNECTED …), net (IP available, Internet validated, Lost) |
+| state, error | The step; error e.g. Authentication failed |
+| ssid, bssid, rssi_dbm, channel, band | Network being joined / connected |
+| spectrum, visit_id, visit_state | Spectrum SSID, and the visit it counts toward |
+| profile, test_running | What was running |
+
+## Wi-Fi join performance (sheet in the session email, Android)
+
+Per session: scans and scans that heard Spectrum; visits, joined, already connected at start, heard but not joined, failed attempts; then Count, Mean, Median, Min, Max, Std Dev (s) for time to connect (first heard → connected), first heard → join start, association + authentication, IP (DHCP), connected → internet validated, scans before connect, time connected per visit and time sending traffic per visit; then totals: time connected to Spectrum Wi-Fi, time sending traffic over it and its share, MB down and up, average Mbps while sending.
