@@ -77,8 +77,8 @@ class Settings {
   String locationCode; // e.g. DAL; blank = from the site or GPS
 
   Settings({
-    this.host = '96.37.191.0', // lab iperf3 server (Spectrum Business, 1 Gbps)
-    this.port = 5201,
+    this.host = 'dal.speedtest.clouvider.net', // public: 10 ports (5200-5209), UDP, IPv6
+    this.port = 5200,
     this.tcpDuration = 10,
     this.tcpParallel = 4,
     this.udpMbps = 10,
@@ -152,6 +152,8 @@ class Settings {
         'locationCode': locationCode,
       };
 
+  static const _labServers = {'96.37.191.0', '2600:6ce6:4406:6006:8b6e:251:99cb:9c38', '10.92.5.100'};
+
   factory Settings.fromJson(Map<String, dynamic> j) {
     final d = Settings();
     // Repair addresses saved by older versions, e.g. "2600:...:9c38:5201"
@@ -159,8 +161,11 @@ class Settings {
     final (savedHost, hostPort) = splitHostPort((j['host'] as String?) ?? '');
     final (savedTwamp, twampPort) = splitHostPort((j['twampHost'] as String?) ?? d.twampHost);
     return Settings(
-      host: savedHost.isNotEmpty ? savedHost : d.host,
-      port: hostPort ?? (j['port'] as num?)?.toInt() ?? d.port,
+      // The lab server (no longer used) moves to the public default.
+      host: savedHost.isNotEmpty && !_labServers.contains(savedHost) ? savedHost : d.host,
+      port: savedHost.isNotEmpty && !_labServers.contains(savedHost)
+          ? (hostPort ?? (j['port'] as num?)?.toInt() ?? d.port)
+          : d.port,
       tcpDuration: (j['tcpDuration'] as num?)?.toInt() ?? d.tcpDuration,
       tcpParallel: (j['tcpParallel'] as num?)?.toInt() ?? d.tcpParallel,
       udpMbps: (j['udpMbps'] as num?)?.toDouble() ?? d.udpMbps,
@@ -702,7 +707,7 @@ class AppState extends ChangeNotifier {
 
   /// Lab profile: latency all the time + one UDP downstream and one UDP
   /// upstream at the same time, until Stop. iperf3 runs one test per port, so
-  /// the upstream uses the next port (5202 on the lab server). Files are named Lab_..._lab_...
+  /// the upstream uses the next port (e.g. 5201 on Clouvider Dallas). Files are named Lab_..._lab_...
   Future<void> startLabTest() {
     final up = _udpConfig(IperfDirection.upload, duration: 0);
     return _runSequence([

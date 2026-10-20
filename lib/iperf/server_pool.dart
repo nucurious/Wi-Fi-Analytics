@@ -50,7 +50,7 @@ final _rnd = Random();
 (String, int)? nextServer(String host, int port,
     {required bool busy, bool refused = false, required bool udp, required Set<String> tried}) {
   final current = publicServerFor(host);
-  // Your own server (e.g. the lab, ports 5201-5205): another port first when
+  // A server not in the public list (e.g. your own on 5201-5205): another port first when
   // this one is busy or not listening.
   if (current == null && (busy || refused)) {
     final ports = port >= 5201 && port <= 5205 ? [for (var p = 5201; p <= 5205; p++) p] : [for (var i = 1; i <= 4; i++) port + i];

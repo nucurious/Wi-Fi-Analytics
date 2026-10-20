@@ -183,7 +183,7 @@ TestFlight builds last 90 days. To refresh, just start a new iPhone build.
 
 ## Your iperf3 server checklist
 
-**Lab server:** Dell OptiPlex 7070 on the lab's 1 Gbps Spectrum Business line: LAN `10.92.5.100`, public IPv4 `96.37.191.0` (shared, behind the lab firewall), IPv6 `2600:6ce6:4406:6006:8b6e:251:99cb:9c38`, port `5201`. Status (Oct 19, 2026): reachable on the lab network; from outside, `96.37.191.0` times out until the lab firewall forwards TCP+UDP 5201–5205 and UDP 862 to `10.92.5.100` (requested from the lab network admin). Until then the app switches to the public servers below by itself. To add more iperf3 ports (so several testers can run at once) and the TWAMP reflector to that PC, run `server/setup-windows-test-server.ps1` on it as administrator.
+**Default server:** `dal.speedtest.clouvider.net`, port `5200` (Clouvider Dallas: 10 ports 5200–5209, UDP, IPv6). As of Oct 20, 2026 the app uses **public iperf3 servers only**: the lab server (96.37.191.0 / Dell OptiPlex) shortcuts were removed, and phones that still had it saved move to Clouvider Dallas automatically. If a public server is busy or down, the app switches to the next one (see below). To use your own server later, type its address in Settings.
 
 Quick reachability check from a Windows PC **outside** the lab network:
 `Test-NetConnection 96.37.191.0 -Port 5201` → `TcpTestSucceeded : True`. Testing from inside the lab can fail even when the server is fine (many routers don't loop traffic back to their own public IP); the definitive test is the app on a phone using **cellular**.

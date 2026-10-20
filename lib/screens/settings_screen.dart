@@ -21,14 +21,6 @@ String? hostProblem(String raw, {bool required = true}) {
   return null;
 }
 
-/// Known test servers, offered as one-tap presets under the address fields.
-/// Tapping one fills the fields; they stay editable.
-const serverPresets = <(String, String, int)>[
-  ('Lab (public IPv4)', '96.37.191.0', 5201),
-  ('Lab (IPv6)', '2600:6ce6:4406:6006:8b6e:251:99cb:9c38', 5201),
-  ('Lab (on lab Wi-Fi)', '10.92.5.100', 5201),
-  ('Clouvider Dallas', 'dal.speedtest.clouvider.net', 5200),
-];
 
 class SettingsScreen extends StatefulWidget {
   final AppState state;
@@ -202,17 +194,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             spacing: 8,
             runSpacing: 4,
             children: [
-              for (final (label, host, port) in serverPresets)
-                ActionChip(
-                  label: Text(label),
-                  onPressed: () {
-                    setState(() {
-                      _host.text = host;
-                      _port.text = '$port';
-                    });
-                    _scheduleAutoSave();
-                  },
-                ),
               for (final p in publicServers)
                 ActionChip(
                   label: Text(p.udp ? p.name : '${p.name} · no UDP'),
