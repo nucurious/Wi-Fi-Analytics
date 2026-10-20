@@ -288,6 +288,33 @@ class DataStore {
     return out;
   }
 
+  /// Whether tests.csv has Lab-profile tests and/or other (field) tests.
+  Future<({bool lab, bool field})> testEnvironments() async {
+    await flush();
+    final path = file(testsFile).path;
+    return Isolate.run(() {
+      final f = File(path);
+      if (!f.existsSync()) return (lab: false, field: false);
+      final lines = f.readAsLinesSync();
+      if (lines.length < 2) return (lab: false, field: false);
+      final col = lines.first.split(',').indexOf('profile');
+      var lab = false, field = false;
+      for (final l in lines.skip(1)) {
+        // profile is a plain word; quoted fields before it can hold commas, so
+        // look for the Lab profile's trigger too.
+        final cells = l.split(',');
+        final isLab = (col >= 0 && col < cells.length && cells[col] == 'Lab') || l.contains(',Lab profile,');
+        if (isLab) {
+          lab = true;
+        } else if (l.trim().isNotEmpty) {
+          field = true;
+        }
+        if (lab && field) break;
+      }
+      return (lab: lab, field: field);
+    });
+  }
+
   Future<int> rowCount(String name) async {
     await flush();
     final path = file(name).path;

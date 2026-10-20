@@ -1582,8 +1582,17 @@ class AppState extends ChangeNotifier {
     ].map(fileSafe).join('_');
   }
 
-  /// Data-tab export of everything logged: Field/Lab_..._all_..._date-time.
+  /// Data-tab export of everything logged: <env>_..._all_..._date-time, where
+  /// <env> follows the tests in it: Lab (all Lab profile), Field (none), Mixed (both).
   String get devicePrefix => fileName(null, null, true);
+
+  Future<String> exportPrefix() async {
+    final env = await store.testEnvironments();
+    final name = fileName(null, null, true);
+    if (env.lab && !env.field) return 'Lab${name.substring('Field'.length)}';
+    if (env.lab && env.field) return 'Mixed${name.substring('Field'.length)}';
+    return name;
+  }
 
   String? get emailStatus => mailer.lastStatus;
   int get emailPending => mailer.pendingCount();

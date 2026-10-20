@@ -47,7 +47,7 @@ class _DataScreenState extends State<DataScreen> {
   Future<void> _export(BuildContext buttonContext, {required bool excel}) async {
     setState(() => _busy = true);
     try {
-      final prefix = widget.state.devicePrefix;
+      final prefix = await widget.state.exportPrefix();
       final List<File> files;
       if (excel) {
         final x = await widget.state.store.exportXlsx(prefix);
