@@ -760,7 +760,7 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             int rssi = info.getRssi();
             if (rssi > -127 && rssi < 0) e.put("rssi", rssi);
             if (Build.VERSION.SDK_INT >= 21 && info.getFrequency() > 0) e.put("freq", info.getFrequency());
-            if (Build.VERSION.SDK_INT >= 29 && info.isPasspointAp()) e.put("passpoint", true);
+            if (Build.VERSION.SDK_INT >= 29 && info.getPasspointFqdn() != null) e.put("passpoint", true);
         } catch (Exception ignored) {
         }
     }
