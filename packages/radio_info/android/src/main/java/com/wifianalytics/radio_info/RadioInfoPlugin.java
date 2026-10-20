@@ -868,6 +868,11 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         try {
             ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return;
+            // The network new sockets use; when it changes, open tests are on a network that is going away.
+            if (Build.VERSION.SDK_INT >= 23) {
+                Network active = cm.getActiveNetwork();
+                m.put("defaultNet", active == null ? "" : active.toString());
+            }
             Network best = null;
             int bestSub = -1;
             for (Network n : cm.getAllNetworks()) {

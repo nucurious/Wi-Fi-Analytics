@@ -53,7 +53,13 @@ class DsdsEvent {
       : gapSeconds = hasGap ? time.difference(started).inMilliseconds / 1000 : null;
 
   String get summary {
-    final g = gapSeconds == null ? '' : ', ${gapSeconds!.toStringAsFixed(1)} s';
+    // 0.0 s = the new SIM already had its IP when data moved; the time the
+    // traffic itself stopped is the user-plane interruption (Traffic gaps).
+    final g = gapSeconds == null
+        ? ''
+        : gapSeconds! < 0.05
+            ? ', IP already up'
+            : ', no IP ${gapSeconds!.toStringAsFixed(1)} s';
     return switch (event) {
       'SIM switch' => '$direction SIM${from.slot} -> SIM${to.slot}$g',
       'SIM switch failed' => '$direction failed SIM${from.slot} -> SIM${to.slot}',

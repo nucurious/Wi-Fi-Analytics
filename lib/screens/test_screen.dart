@@ -305,7 +305,7 @@ class _StatusCard extends StatelessWidget {
         d.label,
         if (d.plmn.isNotEmpty) d.plmn,
         if (ip.isNotEmpty) ip else 'no IP',
-        if (state.lastDsds != null) 'last: ${state.lastDsds!.summary}',
+        if (state.lastDsdsText != null) 'last: ${state.lastDsdsText}',
       ].join('  ·  ')));
     }
     if (state.stalls.count > 0) {
@@ -403,7 +403,16 @@ class _LiveCard extends StatelessWidget {
             ),
             if (s.running && s.upMbps != null)
               Text('Down ${s.currentMbps.toStringAsFixed(1)} Mbps  ·  Up ${s.upMbps!.toStringAsFixed(1)} Mbps',
+                  style: Theme.of(context).textTheme.titleSmall)
+            else if (s.running && s.duplex)
+              Text('Down ${s.currentMbps.toStringAsFixed(1)} Mbps  ·  Up restarting…',
                   style: Theme.of(context).textTheme.titleSmall),
+            // 0.0 while nothing arrives is "no data", not a measured speed: say so.
+            if (s.running && !s.latencyPhase && s.noDataNow >= 2)
+              Text(
+                  'No data for ${s.noDataNow} s${s.lastGoodMbps == null ? '' : ' (last ${s.lastGoodMbps!.toStringAsFixed(1)} Mbps)'}'
+                  '  ·  restarts at ${AppState.noDataSeconds} s',
+                  style: TextStyle(color: cs.error, fontWeight: FontWeight.w600)),
             if (s.running && s.latencyLive != null) _latencyLine(context, s),
             if (s.running && s.latencyProblem != null)
               Text(s.latencyProblem!, style: TextStyle(color: cs.error, fontSize: 13)),

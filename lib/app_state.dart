@@ -249,6 +249,8 @@ class AppState extends ChangeNotifier {
   bool running = false;
   String? phase; // e.g. "TCP Download"
   double currentMbps = 0;
+  int noDataNow = 0; // seconds in a row without data on the main stream
+  double? lastGoodMbps; // last non-zero second, shown while there is no data
   double elapsed = 0;
   int plannedSeconds = 0;
   int round = 0; // repeat mode: current round (1-based)
@@ -550,6 +552,23 @@ class AppState extends ChangeNotifier {
 
   final dsds = DsdsTracker();
   DsdsEvent? lastDsds;
+  String? _defaultNet;
+
+  /// "Hand In SIM1 -> SIM2, IP already up · traffic stopped 1.8 s" for the Test screen.
+  String? get lastDsdsText {
+    final e = lastDsds;
+    if (e == null) return null;
+    if (e.event != 'SIM switch') return e.summary;
+    final from = e.started.subtract(const Duration(seconds: 3));
+    final to = e.time.add(const Duration(seconds: 10));
+    double? up;
+    for (final g in sessionGaps) {
+      if (g.end.isBefore(from) || g.start.isAfter(to)) continue;
+      final s = g.end.difference(g.start).inMilliseconds / 1000;
+      if (up == null || s > up) up = s;
+    }
+    return up == null ? e.summary : '${e.summary} · traffic stopped ${up.toStringAsFixed(1)} s';
+  }
   Timer? _dsdsTimer;
   bool _dsdsBusy = false;
 
@@ -564,6 +583,20 @@ class AppState extends ChangeNotifier {
         stalls.report('Slow native call', sw.elapsedMilliseconds, 'getDataState (SIM / IP read)');
       }
       final events = dsds.update(state, onWifi: radio.isWifi);
+      // Default network changed (new data SIM network, Wi-Fi up or down): continuous
+      // streams restart on the new one instead of waiting for the old one to die.
+      final net = state['defaultNet'] as String?;
+      if (net != null) {
+        final prev = _defaultNet;
+        _defaultNet = net;
+        if (prev != null && prev != net && net.isNotEmpty && running && _continuous && !_cancelSequence &&
+            !events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change')) {
+          for (final c in List.of(_clients)) {
+            _netChangeStops.add(c);
+            c.stop();
+          }
+        }
+      }
       for (final e in events) {
         lastDsds = e;
         store.addDsds([
@@ -1086,8 +1119,11 @@ class AppState extends ChangeNotifier {
   double? upMbps;
 
   /// Runs one continuous stream until Stop, restarting after drops.
+  bool get duplex => _duplex;
+
   Future<void> _streamUntilStopped(IperfConfig cfg) async {
     var fails = 0;
+    var quickRestarts = 0;
     while (!_cancelSequence) {
       final before = recent.isEmpty ? null : recent.first;
       await _runOne(cfg);
@@ -1097,7 +1133,9 @@ class AppState extends ChangeNotifier {
       final ok = last != null && (last.error == null || netChange);
       fails = ok ? 0 : fails + 1;
       // After a network change (data SIM switch / new IP) restart at once on the new network.
-      final wait = netChange ? 0 : min(15, 3 * (1 << min(max(fails - 1, 0), 3)));
+      // Several in a row (no network at all yet): 2 s apart, so it doesn't spin.
+      quickRestarts = netChange ? quickRestarts + 1 : 0;
+      final wait = netChange ? (quickRestarts > 2 ? 2 : 0) : min(15, 3 * (1 << min(max(fails - 1, 0), 3)));
       for (var i = 0; i < wait && !_cancelSequence; i++) {
         await Future.delayed(const Duration(seconds: 1));
       }
@@ -1191,6 +1229,7 @@ class AppState extends ChangeNotifier {
     } else {
       phase = _duplex ? 'UDP down + up' : cfg.label;
       currentMbps = 0;
+      noDataNow = 0;
       elapsed = 0;
       plannedSeconds = cfg.durationSeconds;
       liveSeries.clear();
@@ -1214,6 +1253,10 @@ class AppState extends ChangeNotifier {
       samples.add(iv.mbps);
       if (cfg.direction == IperfDirection.download && cfg.protocol == IperfProtocol.udp) _onDlArrivals(iv, cfg.label);
       zeroRun = iv.mbps < 0.01 ? zeroRun + 1 : 0;
+      if (!secondary) {
+        noDataNow = zeroRun;
+        if (iv.mbps >= 0.01) lastGoodMbps = iv.mbps;
+      }
       if (zeroRun >= noDataSeconds && !noDataStop && !_cancelSequence) {
         noDataStop = true;
         client.stop();
@@ -1284,7 +1327,10 @@ class AppState extends ChangeNotifier {
           : e is SocketException
               ? 'Network error: ${e.osError?.message ?? e.message}'
               : e.toString();
-      final netChangeErr = _netChangeStops.remove(client);
+      // "Network is unreachable" in a continuous run = the network under the test
+      // went away (data SIM switch, Wi-Fi left): restart at once like a network change.
+      final unreachable = _continuous && !_cancelSequence && RegExp(r'unreachable|errno = 101').hasMatch(msg);
+      final netChangeErr = _netChangeStops.remove(client) || unreachable;
       final stoppedMidTest = samples.isNotEmpty && (_cancelSequence || noDataStop || netChangeErr);
       if (samples.isEmpty && _cancelSequence && !netChangeErr) {
         setupError = 'stopped'; // you pressed Stop before any data: not a result
@@ -1604,6 +1650,8 @@ class AppState extends ChangeNotifier {
     _activeByTest.clear();
     dsds.startSession(_sessionStart!);
     wifiJoin.startSession(_sessionStart!);
+    lastGoodMbps = null;
+    noDataNow = 0;
     sessionGaps.clear();
     _dlLastArrival = null;
     _probeLostStart = null;
