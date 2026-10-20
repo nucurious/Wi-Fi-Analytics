@@ -229,6 +229,15 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
                     mainHandler.post(() -> result.success(r));
                 });
                 break;
+            case "getExitReasons": {
+                Object sinceArg = call.argument("since");
+                final long since = sinceArg instanceof Number ? ((Number) sinceArg).longValue() : 0L;
+                dataWorker.execute(() -> {
+                    List<Object> out = exitReasons(since);
+                    mainHandler.post(() -> result.success(out));
+                });
+                break;
+            }
             case "getMainThreadLag":
                 result.success(maxMainLagMs.getAndSet(0));
                 break;
@@ -648,6 +657,49 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
             case 8: return "Wi-Fi 7 (be)";
             default: return "Unknown";
         }
+    }
+
+    // ---------------------------------------------------------------- previous runs' exits
+
+    /**
+     * Why earlier runs of the app ended (Android 11+): ANR ("App isn't
+     * responding"), crash, killed for memory ... newer than [since] (ms).
+     * For an ANR, Android's trace (all threads' stacks) is included, up to 256 KB.
+     */
+    private List<Object> exitReasons(long since) {
+        List<Object> out = new ArrayList<>();
+        if (Build.VERSION.SDK_INT < 30) return out;
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return out;
+            List<android.app.ApplicationExitInfo> list = am.getHistoricalProcessExitReasons(context.getPackageName(), 0, 10);
+            for (android.app.ApplicationExitInfo x : list) {
+                if (x.getTimestamp() <= since) continue;
+                Map<String, Object> m = new HashMap<>();
+                m.put("time", x.getTimestamp());
+                m.put("reason", x.getReason());
+                m.put("description", x.getDescription() == null ? "" : x.getDescription());
+                m.put("importance", x.getImportance());
+                m.put("pssKb", x.getPss());
+                m.put("rssKb", x.getRss());
+                if (x.getReason() == android.app.ApplicationExitInfo.REASON_ANR
+                        || x.getReason() == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE) {
+                    try (java.io.InputStream in = x.getTraceInputStream()) {
+                        if (in != null) {
+                            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                            byte[] b = new byte[8192];
+                            int n;
+                            while ((n = in.read(b)) > 0 && buf.size() < 256 * 1024) buf.write(b, 0, n);
+                            m.put("trace", buf.toString("UTF-8"));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                out.add(m);
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------- Wi-Fi scans and joins

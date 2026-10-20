@@ -311,7 +311,9 @@ Apple doesn't allow apps to read signal strength or cell details, so on iPhone y
 1. **Mark it.** When the screen freezes, tap **Mark freeze** on the Test screen as soon as it responds again. That logs the moment with the app's events from the last 60 s.
 2. **UI stalls sheet** (in the session workbook / run folder): every freeze over 0.7 s, logged automatically: which part was blocked, how long, what was running, the app events just before it, and for *Android main thread blocked* the exact code it was stuck in (**android_main_stack**). Send the workbook and I can match it to the code.
 3. **Debug app:** its logcat (in the same run folder) also has Android's own report: search for `ANR in com.example` (App Not Responding: blocked 5 s or more) and `Choreographer: Skipped … frames`.
-4. **"App isn't responding" dialog:** tap **Wait**, not Close, so the session isn't lost. Then, from a computer, `adb bugreport` saves Android's full ANR trace (in `FS/data/anr/` inside the zip).
+4. **If the app was closed by a freeze or crash** (Android 11+): the next time it opens, the app reads Android's record of how the previous run ended and logs it on **UI stalls** as *Previous run ended: App not responding (ANR)* / *crashed* / *killed for low memory*, with the main thread's stack. The full Android trace is saved in `runs/_app_exits/` and attached to the next session's email. The Test screen shows *Last run ended badly*.
+5. **Memory:** each UI stalls row has **app_memory_mb**; a value climbing over a long run points to memory pressure rather than blocked code.
+6. **"App isn't responding" dialog:** tap **Wait**, not Close, so the session isn't lost. Then, from a computer, `adb bugreport` saves Android's full ANR trace (in `FS/data/anr/` inside the zip).
 
 ---
 

@@ -317,6 +317,7 @@ class AppState extends ChangeNotifier {
     // a long run loses at most a few seconds of data.
     _flushTimer = Timer.periodic(const Duration(seconds: 10), (_) => store.flush());
 
+    await _checkPreviousExits();
     device = await RadioInfo.deviceInfo();
     final imei = device['imeiLast4'] as String?;
     if (imei != null && settings.imeiLast4.isEmpty) {
@@ -574,6 +575,71 @@ class AppState extends ChangeNotifier {
       .map((c) => '${_local(c.$1).split(' ').last} ${c.$2}')
       .join(' | ');
 
+  /// Files with Android's report on earlier runs that ended badly (ANR trace),
+  /// attached to the next session's email and kept in runs/_app_exits.
+  final _exitFiles = <File>[];
+
+  static const _exitReasonNames = {
+    1: 'exited by itself', 2: 'killed by signal', 3: 'killed for low memory', 4: 'crashed',
+    5: 'crashed (native)', 6: 'App not responding (ANR)', 7: 'failed to start', 8: 'permission changed',
+    9: 'killed for excessive resource use', 10: 'closed by user request', 11: 'stopped by user',
+    12: 'dependency died', 13: 'other', 14: 'frozen by Android', 15: 'package state changed', 16: 'app updated',
+  };
+
+  /// Android 11+: logs how earlier runs of the app ended (ANR, crash, killed)
+  /// on the UI stalls sheet, so a freeze that ended in "App isn't responding"
+  /// and a close is recorded even though the app wasn't running to see it.
+  Future<void> _checkPreviousExits() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final seenFile = File('${store.directory.path}/exit_seen.txt');
+      final since = await seenFile.exists() ? int.tryParse((await seenFile.readAsString()).trim()) ?? 0 : 0;
+      final exits = await RadioInfo.exitReasons(since);
+      if (exits.isEmpty) return;
+      var newest = since;
+      final dir = Directory('${(await runsRoot()).path}/_app_exits');
+      for (final x in exits) {
+        final t = ((x['time'] as num?) ?? 0).toInt();
+        if (t > newest) newest = t;
+        final reason = (x['reason'] as num?)?.toInt() ?? 0;
+        // Normal ends: closed from recents, app updated, stopped by user.
+        if (since == 0 || const {1, 10, 11, 15, 16}.contains(reason)) continue;
+        final when = DateTime.fromMillisecondsSinceEpoch(t);
+        final name = _exitReasonNames[reason] ?? 'reason $reason';
+        final trace = x['trace'] as String?;
+        String? main;
+        if (trace != null) {
+          await dir.create(recursive: true);
+          final f = File('${dir.path}/exit_${fileSafe(_local(when))}_${fileSafe(name)}.txt');
+          await f.writeAsString(trace);
+          _exitFiles.add(f);
+          // The main thread's stack, the part that explains an ANR.
+          final i = trace.indexOf('"main"');
+          if (i >= 0) {
+            final end = trace.indexOf('\n\n', i);
+            main = trace.substring(i, end < 0 ? min(trace.length, i + 3000) : min(end, i + 3000)).replaceAll('\n', ' <- ');
+          }
+        }
+        store.addStall([
+          when.toUtc().toIso8601String(),
+          _local(when),
+          'Previous run ended: $name',
+          0,
+          '${x['description'] ?? ''}${trace != null ? ' (full Android trace in runs/_app_exits, attached to the next email)' : ''}',
+          null, null, null, null, null, null, null, null,
+          null,
+          'memory at exit: PSS ${(((x['pssKb'] as num?) ?? 0) / 1024).toStringAsFixed(0)} MB, RSS ${(((x['rssKb'] as num?) ?? 0) / 1024).toStringAsFixed(0)} MB',
+          main,
+          (((x['rssKb'] as num?) ?? 0) / 1024).toStringAsFixed(0),
+        ]);
+        stalls.previousExits++;
+      }
+      await seenFile.writeAsString('$newest');
+      await store.flush();
+      notifyListeners();
+    } catch (_) {}
+  }
+
   /// Test screen button: the tester saw a freeze (logged with the last 60 s of events).
   void markFreeze() => stalls.report('Tester marked freeze', 0, 'tapped Mark freeze');
 
@@ -597,6 +663,7 @@ class AppState extends ChangeNotifier {
       _local(start),
       _recentEvents(start.subtract(lookBack), s.time),
       s.stack,
+      (ProcessInfo.currentRss / 1e6).toStringAsFixed(0),
     ]);
     unawaited(store.flush()); // on disk at once, in case the app is closed or killed
     notifyListeners();
@@ -1830,10 +1897,11 @@ class AppState extends ChangeNotifier {
         filePrefix: prefix,
         subject: '$kAppName: $prefix',
         body: b.toString(),
-        extraFiles: logcatFiles,
+        extraFiles: [...logcatFiles, ..._exitFiles],
         extraSheets: [if (dsdsSheet != null) dsdsSheet, if (joinSheet != null) joinSheet],
       );
       if (queued) {
+        _exitFiles.clear(); // ANR traces went out with this session
         // logcat's session_info.txt belongs with the run too.
         final info = File('${logcat.sessionDir?.path ?? ''}/session_info.txt');
         if (logcatFiles.isNotEmpty && await info.exists()) await info.copy('${runDir.path}/logcat_session_info.txt');

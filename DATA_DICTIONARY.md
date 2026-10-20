@@ -296,6 +296,9 @@ Every UI freeze longer than 0.7 s, to find what blocks the screen during runs.
 | freeze_start_local | When the freeze began (time_local minus duration) |
 | recent_events | App events in the 15 s before the freeze (60 s for Tester marked freeze): test start / end with result, Stop pressed, SIM switch, restarts for a network change, geofence crossings, session end / workbook, emails, Data-tab exports, Wi-Fi scan throttled |
 | android_main_stack | Android main thread blocked: where it was stuck (top 25 stack frames, captured 0.7 s into the freeze), e.g. `android.net.ConnectivityManager.getNetworkCapabilities <- ...` |
+| app_memory_mb | The app's memory (RSS) at the time |
+
+Rows with kind **Previous run ended: …** (Android 11+) are written when the app starts and finds that its last run ended in an ANR, crash, or kill by Android (low memory, excessive resource use, frozen): time = when it ended, detail = Android's description, recent_events = memory at exit, android_main_stack = the main thread from Android's ANR trace. The full trace is in `runs/_app_exits/` and is attached to the next session's email.
 
 ## traffic_gaps.csv (sheet "Traffic gaps")
 

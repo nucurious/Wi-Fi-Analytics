@@ -312,6 +312,10 @@ class _StatusCard extends StatelessWidget {
       rows.add(_row(context, Icons.hourglass_bottom, 'UI freezes',
           '${state.stalls.count} this session, worst ${(state.stalls.worstMs / 1000).toStringAsFixed(1)} s (UI stalls sheet)'));
     }
+    if (state.stalls.previousExits > 0) {
+      rows.add(_row(context, Icons.report_problem_outlined, 'Last run',
+          'ended ${state.stalls.previousExits == 1 ? 'badly once' : '${state.stalls.previousExits} times badly'} (ANR / crash / killed): see UI stalls'));
+    }
     // Tester saw the screen freeze: log the moment with the last 60 s of app events.
     rows.add(Align(
       alignment: Alignment.centerRight,

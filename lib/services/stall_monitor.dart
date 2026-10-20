@@ -34,6 +34,7 @@ class StallMonitor {
   int worstMs = 0;
   int slowCalls = 0; // slow background radio / SIM reads (screen not blocked)
   int marks = 0; // freezes marked by the tester
+  int previousExits = 0; // earlier runs that ended in an ANR / crash / kill (Android 11+)
   bool _wasResumed = true;
 
   void start() {

@@ -57,6 +57,16 @@ class RadioInfo {
     }
   }
 
+  /// Android 11+: why earlier runs of the app ended (ANR, crash, killed ...) after [since] (ms).
+  static Future<List<Map>> exitReasons(int since) async {
+    try {
+      final l = await _channel.invokeListMethod<Map>('getExitReasons', {'since': since});
+      return l ?? const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Android: asks for READ_PHONE_STATE (needed for network type / 5G NSA).
   static Future<bool> requestPhonePermission() async {
     try {
