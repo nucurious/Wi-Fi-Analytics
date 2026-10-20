@@ -104,6 +104,7 @@ class DataStore {
   static final stallsHeader = <String>[
     'time_utc', 'time_local', 'kind', 'duration_ms', 'detail', 'test_running', 'profile', 'test_type',
     'iperf_streams', 'latency', 'logcat_running', 'connection', 'rat',
+    'freeze_start_local', 'recent_events', 'android_main_stack',
   ];
 
   static final failuresHeader = <String>[

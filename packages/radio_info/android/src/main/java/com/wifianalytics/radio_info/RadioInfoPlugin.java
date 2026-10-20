@@ -99,6 +99,11 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
     // the delay before it runs is how long the main thread was blocked.
     private final AtomicLong maxMainLagMs = new AtomicLong(0);
     private final AtomicBoolean probePending = new AtomicBoolean(false);
+    private final AtomicLong probePostedAt = new AtomicLong(0);
+    private final AtomicBoolean stackTaken = new AtomicBoolean(false);
+    // Where the main thread was stuck during the last freeze (top frames), read once by the app.
+    private final java.util.concurrent.atomic.AtomicReference<String> mainStack =
+            new java.util.concurrent.atomic.AtomicReference<>(null);
     private ScheduledExecutorService watchdog;
 
     // Latest TelephonyDisplayInfo override type (tells us about 5G NSA). -1 = unknown.
@@ -114,12 +119,31 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         channel.setMethodCallHandler(this);
         watchdog = Executors.newSingleThreadScheduledExecutor();
         watchdog.scheduleAtFixedRate(() -> {
-            if (!probePending.compareAndSet(false, true)) return;
+            if (!probePending.compareAndSet(false, true)) {
+                // Still blocked: after 0.7 s, record where the main thread is stuck (once per freeze).
+                long blocked = android.os.SystemClock.uptimeMillis() - probePostedAt.get();
+                if (blocked >= 700 && stackTaken.compareAndSet(false, true)) {
+                    try {
+                        StackTraceElement[] st = Looper.getMainLooper().getThread().getStackTrace();
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < st.length && i < 25; i++) {
+                            if (i > 0) sb.append(" <- ");
+                            sb.append(st[i].getClassName()).append('.').append(st[i].getMethodName())
+                                    .append(':').append(st[i].getLineNumber());
+                        }
+                        mainStack.set(sb.toString());
+                    } catch (Exception ignored) {
+                    }
+                }
+                return;
+            }
             final long posted = android.os.SystemClock.uptimeMillis();
+            probePostedAt.set(posted);
             mainHandler.post(() -> {
                 long lag = android.os.SystemClock.uptimeMillis() - posted;
                 maxMainLagMs.accumulateAndGet(lag, Math::max);
                 probePending.set(false);
+                stackTaken.set(false);
             });
         }, 200, 200, TimeUnit.MILLISECONDS);
         registerWifiListeners();
@@ -364,6 +388,8 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
         Map<String, Object> m = new HashMap<>();
         m.put("platform", "android");
         m.put("mainLagMs", maxMainLagMs.getAndSet(0)); // worst main-thread block since the last read
+        String stack = mainStack.getAndSet(null);
+        if (stack != null) m.put("mainStack", stack);
         m.put("connection", connectionType());
         m.put("internetValidated", internetValidated());
         m.put("phonePermission", hasPermission(Manifest.permission.READ_PHONE_STATE));

@@ -381,7 +381,8 @@ class AppState extends ChangeNotifier {
       if (took >= 3000) stalls.report('Slow native call', took, 'getRadioInfo (cell / Wi-Fi read)');
       final lag = (radio.raw['mainLagMs'] as num?)?.toInt() ?? 0;
       if (lag >= StallMonitor.thresholdMs) {
-        stalls.report('Android main thread blocked', lag, 'touches and screen updates waited $lag ms');
+        stalls.report('Android main thread blocked', lag, 'touches and screen updates waited $lag ms',
+            stack: radio.raw['mainStack'] as String?);
       }
       notifyListeners();
     } finally {
@@ -429,6 +430,7 @@ class AppState extends ChangeNotifier {
         speedMs: p.speed, heading: p.heading);
     for (final e in events) {
       lastGeofence = e;
+      crumb('geofence ${e.summary}');
       store.addGeofence([
         e.time.toUtc().toIso8601String(),
         _local(e.time),
@@ -556,7 +558,28 @@ class AppState extends ChangeNotifier {
 
   late final stalls = StallMonitor(_onStall);
 
+  // ------------------------------------------------------------------ freeze debugging
+
+  /// Recent app events (test start / restart, SIM switch, email, export ...),
+  /// written with each UI stall so a freeze can be matched to what was going on.
+  final _crumbs = <(DateTime, String)>[];
+
+  void crumb(String what) {
+    _crumbs.add((DateTime.now(), what));
+    if (_crumbs.length > 60) _crumbs.removeAt(0);
+  }
+
+  String _recentEvents(DateTime from, DateTime to) => _crumbs
+      .where((c) => !c.$1.isBefore(from) && !c.$1.isAfter(to))
+      .map((c) => '${_local(c.$1).split(' ').last} ${c.$2}')
+      .join(' | ');
+
+  /// Test screen button: the tester saw a freeze (logged with the last 60 s of events).
+  void markFreeze() => stalls.report('Tester marked freeze', 0, 'tapped Mark freeze');
+
   void _onStall(Stall s) {
+    final start = s.time.subtract(Duration(milliseconds: s.ms));
+    final lookBack = s.kind == 'Tester marked freeze' ? const Duration(seconds: 60) : const Duration(seconds: 15);
     store.addStall([
       s.time.toUtc().toIso8601String(),
       _local(s.time),
@@ -571,7 +594,11 @@ class AppState extends ChangeNotifier {
       logcat.running ? 1 : 0,
       radio.connection,
       radio.rat,
+      _local(start),
+      _recentEvents(start.subtract(lookBack), s.time),
+      s.stack,
     ]);
+    unawaited(store.flush()); // on disk at once, in case the app is closed or killed
     notifyListeners();
   }
 
@@ -629,6 +656,7 @@ class AppState extends ChangeNotifier {
         if (prev != null && prev != net && net.isNotEmpty && running && _continuous && !_cancelSequence &&
             !events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change')) {
           _netChangeAt = DateTime.now();
+          crumb('default network changed: restart ${_clients.length} streams');
           for (final c in List.of(_clients)) {
             _netChangeStops.add(c);
             c.abandon();
@@ -637,6 +665,7 @@ class AppState extends ChangeNotifier {
       }
       for (final e in events) {
         lastDsds = e;
+        crumb('DSDS ${e.summary}');
         store.addDsds([
           e.time.toUtc().toIso8601String(),
           _local(e.time),
@@ -676,6 +705,7 @@ class AppState extends ChangeNotifier {
       if (running && events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change') && !_cancelSequence) {
         // The test sockets belong to the old network; restart them on the new one.
         _netChangeAt = DateTime.now();
+        crumb('SIM switch / IP change: restart ${_clients.length} streams');
         for (final c in List.of(_clients)) {
           _netChangeStops.add(c);
           c.abandon();
@@ -726,6 +756,7 @@ class AppState extends ChangeNotifier {
         _lastScanAsk = now;
         wifiJoin.lastScanRequest = now;
         lastScanAccepted = await RadioInfo.startWifiScan();
+        if (lastScanAccepted == false) crumb('Wi-Fi scan throttled');
       }
       final raw = await RadioInfo.wifiEvents();
       var changed = false;
@@ -1061,6 +1092,7 @@ class AppState extends ChangeNotifier {
   bool get stopping => running && _cancelSequence;
 
   void stop() {
+    crumb('Stop pressed');
     _cancelSequence = true;
     waitingText = 'Stopping…';
     _client?.stop();
@@ -1280,6 +1312,7 @@ class AppState extends ChangeNotifier {
     _windows.add(window);
 
     final client = BackgroundIperfClient(cfg);
+    crumb('start ${cfg.label} ${cfg.host}:${cfg.port}');
     _client = client;
     _clients.add(client);
     if (!_continuous) _dlLastArrival = null; // separate tests: don't bridge the pause between them
@@ -1447,6 +1480,7 @@ class AppState extends ChangeNotifier {
 
     recent.insert(0, record);
     if (recent.length > 50) recent.removeLast();
+    crumb('end ${record.type}: ${record.error ?? '${record.mbps?.toStringAsFixed(1) ?? '-'} Mbps'}');
 
     store.addTest([
       record.testId,
@@ -1717,6 +1751,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _endSession() async {
+    crumb('session end: building workbook');
     final start = _sessionStart;
     final offsets = _sessionOffsets;
     _sessionStart = null;
@@ -1839,6 +1874,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> sendPendingEmail() async {
     if (mailer.pendingCount() == 0) return;
+    crumb('sending ${mailer.pendingCount()} email(s)');
     await mailer.sendOutbox(to: settings.emailTo, user: settings.smtpUser, appPassword: settings.smtpPassword);
     notifyListeners();
   }

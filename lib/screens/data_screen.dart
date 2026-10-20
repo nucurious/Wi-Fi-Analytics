@@ -47,6 +47,7 @@ class _DataScreenState extends State<DataScreen> {
   Future<void> _export(BuildContext buttonContext, {required bool excel}) async {
     setState(() => _busy = true);
     try {
+      widget.state.crumb('Data tab export (${excel ? 'Excel' : 'CSV'})');
       final prefix = await widget.state.exportPrefix();
       final List<File> files;
       if (excel) {

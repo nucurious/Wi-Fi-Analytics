@@ -9,7 +9,8 @@ class Stall {
   final String kind; // App thread blocked, Slow frame, Android main thread blocked, Slow native call
   final int ms;
   final String detail;
-  Stall(this.time, this.kind, this.ms, this.detail);
+  final String? stack; // Android main thread stack during the freeze, when captured
+  Stall(this.time, this.kind, this.ms, this.detail, [this.stack]);
 }
 
 /// Records UI freezes so testers' runs show when and why the screen stopped
@@ -32,6 +33,7 @@ class StallMonitor {
   int count = 0; // real UI freezes (screen/touch blocked)
   int worstMs = 0;
   int slowCalls = 0; // slow background radio / SIM reads (screen not blocked)
+  int marks = 0; // freezes marked by the tester
   bool _wasResumed = true;
 
   void start() {
@@ -59,20 +61,23 @@ class StallMonitor {
     }
   }
 
-  void report(String kind, int ms, String detail) {
-    if (kind == 'Slow native call') {
+  void report(String kind, int ms, String detail, {String? stack}) {
+    if (kind == 'Tester marked freeze') {
+      marks++;
+    } else if (kind == 'Slow native call') {
       slowCalls++;
     } else {
       count++;
       if (ms > worstMs) worstMs = ms;
     }
-    onStall(Stall(DateTime.now(), kind, ms, detail));
+    onStall(Stall(DateTime.now(), kind, ms, detail, stack));
   }
 
   void resetSession() {
     count = 0;
     worstMs = 0;
     slowCalls = 0;
+    marks = 0;
   }
 
   void stop() {

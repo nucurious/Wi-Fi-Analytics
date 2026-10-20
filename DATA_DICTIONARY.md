@@ -58,6 +58,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
+| 2.6 | Oct 20, 2026 | (1.3.8) | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
 
 ## App and script versions
 
@@ -284,12 +285,15 @@ Every UI freeze longer than 0.7 s, to find what blocks the screen during runs.
 | Column | Meaning |
 |---|---|
 | time_utc, time_local | When it was detected |
-| kind | App thread blocked (the app's Dart thread ran late), Slow frame (a frame took too long to build or draw), Android main thread blocked (touches and screen updates waited; native watchdog every 0.2 s), Slow native call (a radio or SIM read took more than 3 s) |
+| kind | App thread blocked (the app's Dart thread ran late), Slow frame (a frame took too long to build or draw), Android main thread blocked (touches and screen updates waited; native watchdog every 0.2 s), Slow native call (a radio or SIM read took more than 3 s), Tester marked freeze (the tester tapped **Mark freeze** on the Test screen) |
 | duration_ms | How long |
 | detail | Extra detail (frame build/raster time, which call) |
 | test_running, profile, test_type | What was running |
 | iperf_streams, latency, logcat_running | Load at the time |
 | connection, rat | Network at the time |
+| freeze_start_local | When the freeze began (time_local minus duration) |
+| recent_events | App events in the 15 s before the freeze (60 s for Tester marked freeze): test start / end with result, Stop pressed, SIM switch, restarts for a network change, geofence crossings, session end / workbook, emails, Data-tab exports, Wi-Fi scan throttled |
+| android_main_stack | Android main thread blocked: where it was stuck (top 25 stack frames, captured 0.7 s into the freeze), e.g. `android.net.ConnectivityManager.getNetworkCapabilities <- ...` |
 
 ## traffic_gaps.csv (sheet "Traffic gaps")
 

@@ -312,6 +312,19 @@ class _StatusCard extends StatelessWidget {
       rows.add(_row(context, Icons.hourglass_bottom, 'UI freezes',
           '${state.stalls.count} this session, worst ${(state.stalls.worstMs / 1000).toStringAsFixed(1)} s (UI stalls sheet)'));
     }
+    // Tester saw the screen freeze: log the moment with the last 60 s of app events.
+    rows.add(Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+        onPressed: () {
+          state.markFreeze();
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Freeze marked: UI stalls sheet, with the last 60 s of app events')));
+        },
+        icon: const Icon(Icons.flag_outlined, size: 18),
+        label: Text(state.stalls.marks == 0 ? 'Mark freeze' : 'Mark freeze (${state.stalls.marks} marked)'),
+      ),
+    ));
     if (Platform.isAndroid && state.settings.spectrumWifi) {
       rows.add(_row(context, Icons.wifi_find, 'Spectrum Wi-Fi', [
         state.wifiJoin.status(DateTime.now()),

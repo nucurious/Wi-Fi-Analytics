@@ -34,6 +34,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 - [Overnight and weekend runs](#overnight-and-weekend-runs)
 - [What the app records on each platform](#what-the-app-records-on-each-platform)
 - [Troubleshooting](#troubleshooting)
+  - [Tracking freezes](#tracking-freezes)
 - [Alternative: building on your own computer](#alternative-building-on-your-own-computer)
 - [Debug app: Analytics_debug_ver1.0 (records logcat)](#debug-app-analytics_debug_ver10-records-logcat)
 
@@ -52,6 +53,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
+| 2.6 | Oct 20, 2026 | (1.3.8) | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
 
 ## App and script versions
 
@@ -299,7 +301,15 @@ Apple doesn't allow apps to read signal strength or cell details, so on iPhone y
 | UDP test shows high loss | The target bitrate may be higher than the link can carry. Lower the **Target bitrate**. |
 | Cell fields blank on Android | Allow **Phone** and **Location** permissions for the app in Android Settings → Apps → Wi-Fi_Analytics_v1.3 → Permissions, and make sure Location is on. |
 | Codemagic Android build fails | Open the failed step's log and send me the error text. |
+| Screen freezes during a run | See **Tracking freezes** below. |
 | Codemagic iPhone build fails at code signing | Check the Bundle ID is identical in all three `codemagic.yaml` lines, in Apple's Identifiers list, and in App Store Connect; and that the integration name is exactly `WiFi Analytics key`. |
+
+### Tracking freezes
+
+1. **Mark it.** When the screen freezes, tap **Mark freeze** on the Test screen as soon as it responds again. That logs the moment with the app's events from the last 60 s.
+2. **UI stalls sheet** (in the session workbook / run folder): every freeze over 0.7 s, logged automatically: which part was blocked, how long, what was running, the app events just before it, and for *Android main thread blocked* the exact code it was stuck in (**android_main_stack**). Send the workbook and I can match it to the code.
+3. **Debug app:** its logcat (in the same run folder) also has Android's own report: search for `ANR in com.example` (App Not Responding: blocked 5 s or more) and `Choreographer: Skipped … frames`.
+4. **"App isn't responding" dialog:** tap **Wait**, not Close, so the session isn't lost. Then, from a computer, `adb bugreport` saves Android's full ANR trace (in `FS/data/anr/` inside the zip).
 
 ---
 
