@@ -118,7 +118,7 @@ Check: the repository's main page should show `codemagic.yaml`, `pubspec.yaml`, 
 1. In Codemagic, open the app and click **Start new build**.
 2. Choose the workflow **Android APK** (or **Android Debug APK (logcat)** for the debug app) and click **Start new build**.
 3. Wait about 15 minutes for a green ✅.
-4. Under **Artifacts**, download `Wi-Fi_Analytics_v1.3.apk` (debug app: `Analytics_debug_ver1.0.apk`). Both can be installed on the same phone.
+4. Under **Artifacts**, download `Wi-Fi_Analytics_v<version>.apk`, e.g. `Wi-Fi_Analytics_v1.3.7.apk` (debug app: `Analytics_debug_ver<version>.apk`, e.g. `Analytics_debug_ver1.0.7.apk`; from 1.3.7 the version is in the file name). Both can be installed on the same phone.
 
 **Install it on the Android phone:**
 
@@ -322,7 +322,7 @@ A separate app (`com.example.analyticsdebug`) that installs next to Wi-Fi_Analyt
 everything it does, plus records logcat during every test session.
 
 1. In Codemagic, start the **Android Debug APK (logcat)** workflow and install
-   `Analytics_debug_ver1.0.apk`.
+   `Analytics_debug_ver1.0.7.apk` (the file name carries the version).
 2. Android only lets an app read the radio and system logs if you grant it from a computer,
    once per install (USB debugging on, phone connected):
 
