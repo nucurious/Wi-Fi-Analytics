@@ -49,6 +49,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 2.1 | Oct 19, 2026 | 994535f | Geofence and dual-SIM (DSDS) logs section; app 1.3.1 / debug 1.0.1. |
 | 2.2 | Oct 19, 2026 | b5ec863 | Spectrum HMNO CBRS geofence (541 areas); Hand In / Hand Out transition performance. |
 | 2.3 | Oct 19, 2026 | 96fa286 | Table of contents; app 1.3.2 / debug 1.0.2 (UI freeze fix, UI stalls sheet). |
+| 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
 
 ## App and script versions
 
@@ -61,10 +62,15 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Analytics_debug_ver1.0 (Android) | 1.0.0 | Oct 19, 2026 | aaafbb5 to 1c9fce9 | Separate debug app: everything in v1.3 plus logcat per session (logcat -b all -v time, rotating files, gzipped and emailed; adb-pullable). |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.1 | Oct 19, 2026 | 5bfc334 to b5ec863 | Geofence: Spectrum HMNO CBRS geofence built in (GeoFence_20260708.json, 541 areas) plus saved sites; Entered / Exited with time and GPS on a Geofence sheet. Dual SIM (DSDS): data-SIM switches (Hand In / Hand Out, success, switch time), IP changes and data gaps on a DSDS transitions sheet, and a Transition performance sheet per session (count, successful, mean, median, min, max, std dev); data SIM and cellular IP on every row. |
 | Analytics_debug_ver1.0 (Android) | 1.0.1 | Oct 19, 2026 | 5bfc334 to b5ec863 | Same new features as 1.3.1, plus logcat as before. |
-| Wi-Fi_Analytics_v1.3 (Android) | 1.3.2 | Oct 19, 2026 | 96fa286 (current) | UI freeze fix: radio, Wi-Fi and SIM reads moved off the Android main thread. New UI stalls sheet (app thread, slow frames, Android main thread, slow native calls) with what was running. |
-| Analytics_debug_ver1.0 (Android) | 1.0.2 | Oct 19, 2026 | 96fa286 (current) | Same as 1.3.2, plus logcat as before. |
-| Wi-Fi Analytics (iPhone) | 1.3.2 (code) | Oct 19, 2026 | 96fa286 | Same code as Android 1.3.1 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
-| setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.2 | Oct 19, 2026 | 96fa286 | UI freeze fix: radio, Wi-Fi and SIM reads moved off the Android main thread. New UI stalls sheet (app thread, slow frames, Android main thread, slow native calls) with what was running. |
+| Analytics_debug_ver1.0 (Android) | 1.0.2 | Oct 19, 2026 | 96fa286 | Same as 1.3.2, plus logcat as before. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.3 | Oct 19, 2026 | 1def654 | Stop ends the test at once: connection attempts cancelled, final result exchange limited to 3 s, quick latency stop; button shows Stopping. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.4 | Oct 19, 2026 | e28d220, 242c053 | Tests with no data for 15 s end with an error instead of running at 0 Mbps; walk tests skipped on Wi-Fi without internet; no false Data lost while on Wi-Fi. One folder per test run (workbook, summary, logcat) with Export buttons on the Test and Data screens. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.5 | Oct 20, 2026 | e82a255 | Survives data-SIM switches: the test restarts on a network change instead of failing (Send failed: Network is unreachable). UDP duration 0 runs download and upload together until Stop. User-plane interruption from the traffic (UDP packet gaps over 0.3 s, lost latency probes): Traffic gaps sheet and UP rows in Transition performance. Settings save automatically. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.6 | Oct 20, 2026 | 357ba31 (current) | Public iperf3 servers only: lab server shortcuts removed; saved lab addresses move to Clouvider Dallas (default dal.speedtest.clouvider.net:5200). |
+| Analytics_debug_ver1.0 (Android) | 1.0.3 to 1.0.6 | Oct 19-20, 2026 | 1def654 to 357ba31 (current) | Same as 1.3.3 to 1.3.6, plus logcat as before (logcat stored in each run folder). |
+| Wi-Fi Analytics (iPhone) | 1.3.6 (code) | Oct 20, 2026 | 357ba31 | Same code as Android 1.3.6 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
+| setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
 
 Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
@@ -185,14 +191,7 @@ TestFlight builds last 90 days. To refresh, just start a new iPhone build.
 
 **Default server:** `dal.speedtest.clouvider.net`, port `5200` (Clouvider Dallas: 10 ports 5200–5209, UDP, IPv6). As of Oct 20, 2026 the app uses **public iperf3 servers only**: the lab server (96.37.191.0 / Dell OptiPlex) shortcuts were removed, and phones that still had it saved move to Clouvider Dallas automatically. If a public server is busy or down, the app switches to the next one (see below). To use your own server later, type its address in Settings.
 
-Quick reachability check from a Windows PC **outside** the lab network:
-`Test-NetConnection 96.37.191.0 -Port 5201` → `TcpTestSucceeded : True`. Testing from inside the lab can fail even when the server is fine (many routers don't loop traffic back to their own public IP); the definitive test is the app on a phone using **cellular**.
-
-Things that limit results from the lab server:
-- The line's **upload** speed caps every phone **download** test (the server sends). Check it with a speed test from the lab.
-- 1 Gbps line → tests top out around 940 Mbps. For faster Wi-Fi 7 tests, test against the server's LAN address from the lab Wi-Fi.
-
-The phone connects to your server on the port in Settings (default 5201):
+If you set up your own server later, the phone connects to it on the port in Settings:
 
 - Start the server with: `iperf3 -s -p 5201`
 - Open **both TCP and UDP** on that port in the server's firewall / cloud security group. UDP tests need UDP open; speed tests need TCP.
@@ -214,9 +213,9 @@ Until a reflector is set, Android uses **ping** to the ping host in Settings (de
 
 ## Test servers and automatic switching
 
-**Settings → iperf3 server** has shortcuts for the lab server and 11 US public servers (Clouvider, Leaseweb, IS.CC and others in Dallas, Chicago, Atlanta and Boston). Servers marked **no UDP** work for speed tests and Walk only. Each port runs one test at a time, so multi-port servers (Clouvider Dallas and Atlanta: 10 ports with UDP) are best when several phones test at once.
+**Settings → iperf3 server** has shortcuts for 11 US public servers (Clouvider, Leaseweb, IS.CC and others in Dallas, Chicago, Atlanta and Boston). Servers marked **no UDP** work for speed tests and Walk only. Each port runs one test at a time, so multi-port servers (Clouvider Dallas and Atlanta: 10 ports with UDP) are best when several phones test at once.
 
-With **Switch servers when a test can't start** on (default), a test that fails before any data (busy, refused, timed out, not found) is retried on the lab server's other ports (5201–5205), the busy server's next port, or the next public server (nearest to Denver first; UDP tests only use UDP servers), up to 8 tries. The server that works is kept for the rest of the session. Those failures go to the **Server failures** sheet, not to the results.
+With **Switch servers when a test can't start** on (default), a test that fails before any data (busy, refused, timed out, not found) is retried on the busy server's next port (or the next ports of a server you typed in), or the next public server (nearest to Denver first; UDP tests only use UDP servers), up to 8 tries. The server that works is kept for the rest of the session. Those failures go to the **Server failures** sheet, not to the results.
 
 ## Traffic profiles (Test tab)
 
