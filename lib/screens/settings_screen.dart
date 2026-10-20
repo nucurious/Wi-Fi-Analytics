@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -57,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _autoSave?.cancel();
     widget.state.removeListener(_maybeLoad);
     super.dispose();
   }
@@ -104,7 +106,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static String _num(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : '$v';
 
-  Future<void> _save() async {
+  Timer? _autoSave;
+
+  /// Saves a moment after each edit, so a change counts even if "Save settings"
+  /// isn't tapped (a UDP duration of 0 that was never saved ran 30 s tests).
+  void _scheduleAutoSave() {
+    _autoSave?.cancel();
+    _autoSave = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) _save(silent: true);
+    });
+  }
+
+  Future<void> _save({bool silent = false}) async {
     if (!_formKey.currentState!.validate()) return;
     // Accept "address:port" / "[IPv6]:port": move the port to its own field.
     final (host, typedPort) = splitHostPort(_host.text);
@@ -155,6 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       locationCode: _locCode.text.trim().toUpperCase(),
     ));
     if (!mounted) return;
+    if (silent) return;
     FocusScope.of(context).unfocus();
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
   }
@@ -164,6 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!_loaded) return const Center(child: CircularProgressIndicator());
     return Form(
       key: _formKey,
+      onChanged: _scheduleAutoSave,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
@@ -190,22 +205,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               for (final (label, host, port) in serverPresets)
                 ActionChip(
                   label: Text(label),
-                  onPressed: () => setState(() {
-                    _host.text = host;
-                    _port.text = '$port';
-                  }),
+                  onPressed: () {
+                    setState(() {
+                      _host.text = host;
+                      _port.text = '$port';
+                    });
+                    _scheduleAutoSave();
+                  },
                 ),
               for (final p in publicServers)
                 ActionChip(
                   label: Text(p.udp ? p.name : '${p.name} · no UDP'),
-                  onPressed: () => setState(() {
-                    _host.text = p.host;
-                    _port.text = '${p.firstPort}';
-                  }),
+                  onPressed: () {
+                    setState(() {
+                      _host.text = p.host;
+                      _port.text = '${p.firstPort}';
+                    });
+                    _scheduleAutoSave();
+                  },
                 ),
             ],
           ),
-          Text('Tap to fill in, then Save settings. You can still edit the fields. '
+          Text('Tap to fill in; changes save by themselves. You can still edit the fields. '
               '"no UDP" servers work for speed tests and Walk, not for UDP streams or Drive.',
               style: Theme.of(context).textTheme.bodySmall),
           SwitchListTile(
@@ -215,7 +236,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'public server (Dallas, Chicago, Atlanta, Boston). Those failures are left out of the results '
                 'and listed on a separate "Server failures" sheet.'),
             value: _rotate,
-            onChanged: (v) => setState(() => _rotate = v),
+            onChanged: (v) {
+              setState(() => _rotate = v);
+              _scheduleAutoSave();
+            },
           ),
           const SizedBox(height: 16),
           _section('Speed test (TCP)'),
@@ -243,7 +267,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Measure latency during every test'),
             subtitle: const Text('Runs alongside speed and UDP tests; writes twamp.csv'),
             value: _latOn,
-            onChanged: (v) => setState(() => _latOn = v),
+            onChanged: (v) {
+              setState(() => _latOn = v);
+              _scheduleAutoSave();
+            },
           ),
           TextFormField(
             controller: _twHost,
@@ -279,7 +306,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ButtonSegment(value: 'upload', label: Text('UDP upload'), icon: Icon(Icons.north)),
             ],
             selected: {_driveDir},
-            onSelectionChanged: (v) => setState(() => _driveDir = v.first),
+            onSelectionChanged: (v) {
+              setState(() => _driveDir = v.first);
+              _scheduleAutoSave();
+            },
           ),
           const SizedBox(height: 16),
           _section('Walk profile'),
@@ -291,7 +321,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Also test when moving to a new AP'),
             subtitle: const Text('Roams between APs on the same Wi-Fi network (Android only)'),
             value: _walkRoam,
-            onChanged: (v) => setState(() => _walkRoam = v),
+            onChanged: (v) {
+              setState(() => _walkRoam = v);
+              _scheduleAutoSave();
+            },
           ),
           const SizedBox(height: 16),
           _section('Email results'),
@@ -300,7 +333,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Email results when a session stops'),
             subtitle: const Text('Only that session\'s rows, gzip-compressed. Queued and retried if there is no signal'),
             value: _email,
-            onChanged: (v) => setState(() => _email = v),
+            onChanged: (v) {
+              setState(() => _email = v);
+              _scheduleAutoSave();
+            },
           ),
           TextFormField(
             controller: _emailTo,
@@ -363,7 +399,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Repeat until stopped'),
             subtitle: const Text('Runs the test again and again, and restarts it after errors or network changes'),
             value: _repeat,
-            onChanged: (v) => setState(() => _repeat = v),
+            onChanged: (v) {
+              setState(() => _repeat = v);
+              _scheduleAutoSave();
+            },
           ),
           _intField(_repeatGap, 'Pause between rounds (seconds)', min: 0, max: 86400,
               helper: 'e.g. 900 = a speed test every 15 minutes'),
@@ -375,7 +414,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Logs entering and leaving the 541 HMNO CBRS areas (GeoFence_20260708.json) '
                 'on the Geofence sheet, and adds it to dual-SIM rows. Saved sites are always geofences.'),
             value: _hmno,
-            onChanged: (v) => setState(() => _hmno = v),
+            onChanged: (v) {
+              setState(() => _hmno = v);
+              _scheduleAutoSave();
+            },
           ),
           if (kDebugApp)
             SwitchListTile(
@@ -383,7 +425,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('Record logcat during tests'),
               subtitle: const Text('Saved per session (gzip) and emailed with the results. See the Data tab for access.'),
               value: _logcat,
-              onChanged: (v) => setState(() => _logcat = v),
+              onChanged: (v) {
+              setState(() => _logcat = v);
+              _scheduleAutoSave();
+            },
             ),
           if (kDebugApp)
             _intField(_lcMb, 'Logcat file size (MB)', min: 1, max: 1024,
@@ -396,14 +441,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Keep screen on during tests'),
             subtitle: const Text('Recommended: tests and GPS pause if the phone locks'),
             value: _keepOn,
-            onChanged: (v) => setState(() => _keepOn = v),
+            onChanged: (v) {
+              setState(() => _keepOn = v);
+              _scheduleAutoSave();
+            },
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Log GPS track every second'),
             subtitle: const Text('Writes gps_track.csv while the app is open'),
             value: _logTrack,
-            onChanged: (v) => setState(() => _logTrack = v),
+            onChanged: (v) {
+              setState(() => _logTrack = v);
+              _scheduleAutoSave();
+            },
           ),
           const SizedBox(height: 16),
           SizedBox(height: 52, child: FilledButton(onPressed: _save, child: const Text('Save settings'))),

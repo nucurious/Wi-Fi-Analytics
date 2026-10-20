@@ -13,6 +13,7 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `geofence.csv` | Geofence crossing (Entered / Exited / Inside at start) |
 | `dsds_transitions.csv` | Dual-SIM data transition (Android) |
 | `ui_stalls.csv` | UI freeze longer than 0.7 s |
+| `traffic_gaps.csv` | User-plane interruption seen in the traffic (UDP download packet gap > 0.3 s, or 2+ latency probes lost in a row) |
 
 The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Sites; the session email also has a Transition performance sheet (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
@@ -257,7 +258,7 @@ Same layout as the Transition Performance report, for this session:
 | Successful switches | attempts with an IP on the new SIM within 60 s | … |
 | Mean (s), Median (s), Min (s), Max (s), Std Dev (s) | switch_time_s of the successful switches (sample std dev) | … |
 
-An **Other** column appears if neither SIM was HMNO. Below: counts of IP changes, interruptions and losses, and the session length.
+Below the switch-time rows, **User-plane interruption (from traffic)**: for each successful switch, the longest traffic gap overlapping [switch start − 3 s, switch + 10 s] (UDP download packet gaps preferred, at ms precision; else lost TWAMP/ping probes at 0.1 / 0.2 s), with Switches with a traffic gap, UP Mean, Median, Min, Max, Std Dev. Run a continuous UDP stream (duration 0, Lab or Drive profile) during switches for the best numbers. An **Other** column appears if neither SIM was HMNO. Below: counts of IP changes, interruptions and losses, and the session length.
 
 ## ui_stalls.csv (sheet "UI stalls")
 
@@ -272,3 +273,15 @@ Every UI freeze longer than 0.7 s, to find what blocks the screen during runs.
 | test_running, profile, test_type | What was running |
 | iperf_streams, latency, logcat_running | Load at the time |
 | connection, rat | Network at the time |
+
+## traffic_gaps.csv (sheet "Traffic gaps")
+
+User-plane interruptions measured from the traffic itself.
+
+| Column | Meaning |
+|---|---|
+| start_utc, end_utc, start_local, duration_s | The gap (ms precision for UDP download packets) |
+| source | UDP download packets (gap > 0.3 s between received packets; in continuous runs also from the last packet before a restart to the first after it), TWAMP lost / Ping lost (2+ probes lost in a row: from the first lost send to the next answered send) |
+| test_type, profile | What was running |
+| data_sim_slot, data_plmn, cell_ipv6, cell_ipv4, connection, rat, in_hmno_geofence | Network when the gap was logged (after it ended) |
+| latitude, longitude, speed_kmh | Position |

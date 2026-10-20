@@ -29,6 +29,7 @@ class DataStore {
   static const geofenceFile = 'geofence.csv';
   static const dsdsFile = 'dsds_transitions.csv';
   static const stallsFile = 'ui_stalls.csv';
+  static const gapsFile = 'traffic_gaps.csv';
   static const sitesFile = 'sites.csv';
   static const sitesJson = 'sites.json';
   static const settingsJson = 'settings.json';
@@ -60,6 +61,12 @@ class DataStore {
     'profile', 'test_running', 'test_type', 'site_id',
     ...GpsCsv.header,
     ...RadioSnapshot.csvHeader,
+  ];
+
+  static final gapsHeader = <String>[
+    'start_utc', 'end_utc', 'start_local', 'duration_s', 'source', 'test_type', 'profile',
+    'data_sim_slot', 'data_plmn', 'cell_ipv6', 'cell_ipv4', 'connection', 'rat', 'in_hmno_geofence',
+    'latitude', 'longitude', 'speed_kmh',
   ];
 
   static final stallsHeader = <String>[
@@ -152,6 +159,7 @@ class DataStore {
   void addGeofence(List<Object?> row) => _append(geofenceFile, geofenceHeader, row);
   void addDsds(List<Object?> row) => _append(dsdsFile, dsdsHeader, row);
   void addStall(List<Object?> row) => _append(stallsFile, stallsHeader, row);
+  void addGap(List<Object?> row) => _append(gapsFile, gapsHeader, row);
 
   /// Appends buffered rows to the files. Flushes run one after another, and
   /// new rows go into the buffer meanwhile, so writes never collide (the old
@@ -238,7 +246,7 @@ class DataStore {
   Future<List<File>> exportFiles() async {
     await flush();
     final out = <File>[];
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, sitesFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, gapsFile, sitesFile]) {
       final f = file(name);
       if (await f.exists() && await f.length() > 0) out.add(f);
     }
@@ -297,6 +305,7 @@ class DataStore {
     failuresFile: 'Server failures',
     geofenceFile: 'Geofence',
     dsdsFile: 'DSDS transitions',
+    gapsFile: 'Traffic gaps',
     stallsFile: 'UI stalls',
     sitesFile: 'Sites',
   };
@@ -304,7 +313,7 @@ class DataStore {
   /// Deletes test, sample and track logs. Sites are kept.
   Future<void> clearLogs() async {
     await _closeAll();
-    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile]) {
+    for (final name in [testsFile, samplesFile, latencyFile, trackFile, failuresFile, geofenceFile, dsdsFile, stallsFile, gapsFile]) {
       final f = file(name);
       if (await f.exists()) await f.delete();
     }

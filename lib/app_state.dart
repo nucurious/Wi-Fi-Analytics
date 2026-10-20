@@ -431,6 +431,78 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ------------------------------------------------------------------ traffic gaps
+
+  /// User-plane interruptions seen in the traffic itself: gaps > 0.3 s between
+  /// UDP download packets (ms precision, across test restarts in continuous
+  /// runs), and 2+ latency probes lost in a row (TWAMP 0.1 s / ping 0.2 s
+  /// resolution). Used to time Hand In / Hand Out from the data's point of view.
+  final sessionGaps = <TrafficGap>[];
+  double? _dlLastArrival;
+  DateTime? _probeLostStart;
+  int _probeLostN = 0;
+  final _probeOutcomes = <(DateTime, bool)>[];
+
+  void _trafficGap(DateTime start, DateTime end, String source, String? testType) {
+    final secs = end.difference(start).inMilliseconds / 1000;
+    if (secs <= 0) return;
+    sessionGaps.add(TrafficGap(start, end, source));
+    final r = radio;
+    final p = position;
+    store.addGap([
+      start.toUtc().toIso8601String(),
+      end.toUtc().toIso8601String(),
+      _local(start),
+      secs.toStringAsFixed(3),
+      source,
+      testType,
+      running ? profile.label : null,
+      r.raw['dataSimSlot'],
+      r.raw['dataPlmn'],
+      r.raw['cellIpv6'],
+      r.raw['cellIpv4'],
+      r.connection,
+      r.rat,
+      geofence.inHmno == null ? null : (geofence.inHmno! ? 'yes' : 'no'),
+      p?.latitude.toStringAsFixed(7),
+      p?.longitude.toStringAsFixed(7),
+      p == null || p.speed < 0 ? null : (p.speed * 3.6).toStringAsFixed(1),
+    ]);
+  }
+
+  /// UDP download packets: gaps inside a test, and (continuous runs) from the
+  /// last packet of a test to the first of its restart.
+  void _onDlArrivals(IperfInterval iv, String testType) {
+    DateTime t(double s) => DateTime.fromMicrosecondsSinceEpoch((s * 1e6).round());
+    final first = iv.firstArrival;
+    if (first == null) return;
+    final last = _dlLastArrival;
+    if (last != null && first - last > 0.3) _trafficGap(t(last), t(first), 'UDP download packets', testType);
+    for (final (a, b) in iv.gaps) {
+      _trafficGap(t(a), t(b), 'UDP download packets', testType);
+    }
+    _dlLastArrival = iv.lastArrival;
+  }
+
+  /// Latency probes, in send order, once they are settled: 2+ lost in a row = a gap
+  /// from the first lost send to the next answered send.
+  void _scanProbeOutcomes(DateTime cutoff, {bool all = false}) {
+    final ready = _probeOutcomes.where((o) => all || o.$1.isBefore(cutoff)).toList()..sort((a, b) => a.$1.compareTo(b.$1));
+    _probeOutcomes.removeWhere((o) => all || o.$1.isBefore(cutoff));
+    for (final (t, ok) in ready) {
+      if (!ok) {
+        _probeLostStart ??= t;
+        _probeLostN++;
+      } else {
+        if (_probeLostStart != null && _probeLostN >= 2) {
+          _trafficGap(_probeLostStart!, t, latencyLabel?.startsWith('TWAMP') == true ? 'TWAMP lost' : 'Ping lost', running ? phase : null);
+        }
+        _probeLostStart = null;
+        _probeLostN = 0;
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ UI freezes
 
   late final stalls = StallMonitor(_onStall);
@@ -510,6 +582,13 @@ class AppState extends ChangeNotifier {
           ...radio.csvValues,
         ]);
       }
+      if (running && events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change') && !_cancelSequence) {
+        // The test sockets belong to the old network; restart them on the new one.
+        for (final c in List.of(_clients)) {
+          _netChangeStops.add(c);
+          c.stop();
+        }
+      }
       if (events.isNotEmpty) notifyListeners();
     } catch (_) {
       // Not available on this phone; ignore.
@@ -526,7 +605,7 @@ class AppState extends ChangeNotifier {
       return RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
     }
 
-    final rows = dsds.summary(end);
+    final rows = dsds.summary(end, gaps: sessionGaps);
     final b = StringBuffer()..writeln(dsds.summaryHeader.map(q).join(','));
     for (final r in rows) {
       b.writeln(r.map(q).join(','));
@@ -638,10 +717,23 @@ class AppState extends ChangeNotifier {
         _tcpConfig(IperfDirection.upload),
       ]);
 
-  Future<void> runUdpStream(UdpDirection dir) => _runSequence([
-        if (dir != UdpDirection.upload) _udpConfig(IperfDirection.download),
-        if (dir != UdpDirection.download) _udpConfig(IperfDirection.upload),
-      ]);
+  /// UDP stream. Duration 0 = run until Stop: each direction restarts by
+  /// itself after a drop or network change, and "both" runs download and
+  /// upload at the same time (upload on the next port, like the Lab profile).
+  Future<void> runUdpStream(UdpDirection dir) {
+    final continuous = settings.udpDuration == 0;
+    final up = _udpConfig(IperfDirection.upload);
+    return _runSequence([
+      if (dir != UdpDirection.upload) _udpConfig(IperfDirection.download),
+      if (dir != UdpDirection.download)
+        continuous && dir == UdpDirection.both ? _onServer(up, up.host, up.port + 1) : up,
+    ]);
+  }
+
+  /// All tests of the session run at once and until Stop (Lab profile, or UDP with duration 0).
+  bool _continuous = false;
+  /// Download and upload at the same time; the upload owns the secondary display.
+  bool _duplex = false;
 
   IperfConfig _tcpConfig(IperfDirection d) => IperfConfig(
         host: settings.host.trim(),
@@ -675,6 +767,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// Stops the running test and any remaining tests in the sequence.
+  static const networkChangedText = 'Network changed (data SIM switch / new IP); test restarted';
+
+  /// Clients stopped because the data network changed under them.
+  final _netChangeStops = <BackgroundIperfClient>{};
+
   /// A test with no data for this long is ended as failed ("No data for 15 s").
   static const noDataSeconds = 15;
 
@@ -701,7 +798,9 @@ class AppState extends ChangeNotifier {
     }
     running = true;
     profile = p;
-    _keepGoing = p == TestProfile.drive || p == TestProfile.lab || settings.repeatUntilStopped;
+    _continuous = p == TestProfile.lab || configs.every((c) => c.protocol == IperfProtocol.udp && c.durationSeconds == 0);
+    _duplex = _continuous && configs.length > 1;
+    _keepGoing = p == TestProfile.drive || _continuous || settings.repeatUntilStopped;
     _trigger = switch (p) {
       TestProfile.drive => 'Drive profile',
       TestProfile.lab => 'Lab profile',
@@ -722,8 +821,8 @@ class AppState extends ChangeNotifier {
     try {
       while (true) {
         round++;
-        if (p == TestProfile.lab) {
-          // Both directions at once, each restarting by itself after a drop.
+        if (_continuous) {
+          // Each stream at once, each restarting by itself after a drop.
           await Future.wait([for (final c in configs) _streamUntilStopped(c)]);
           break;
         }
@@ -783,9 +882,12 @@ class AppState extends ChangeNotifier {
       final before = recent.isEmpty ? null : recent.first;
       await _runOne(cfg);
       if (_cancelSequence) break;
-      final ok = recent.isNotEmpty && !identical(recent.first, before) && recent.first.error == null;
+      final last = recent.isNotEmpty && !identical(recent.first, before) ? recent.first : null;
+      final netChange = last?.error?.startsWith(networkChangedText) ?? false;
+      final ok = last != null && (last.error == null || netChange);
       fails = ok ? 0 : fails + 1;
-      final wait = min(15, 3 * (1 << min(max(fails - 1, 0), 3)));
+      // After a network change (data SIM switch / new IP) restart at once on the new network.
+      final wait = netChange ? 0 : min(15, 3 * (1 << min(max(fails - 1, 0), 3)));
       for (var i = 0; i < wait && !_cancelSequence; i++) {
         await Future.delayed(const Duration(seconds: 1));
       }
@@ -810,7 +912,7 @@ class AppState extends ChangeNotifier {
   Future<void> _runOne(IperfConfig base) async {
     final udp = base.protocol == IperfProtocol.udp;
     var cfg = base;
-    final active = _activeByTest[base.label] ?? (profile == TestProfile.lab ? null : _activeServer);
+    final active = _activeByTest[base.label] ?? (_duplex ? null : _activeServer);
     if (settings.rotateServers && active != null && (!udp || (publicServerFor(active.$1)?.udp ?? true))) {
       cfg = _onServer(base, active.$1, active.$2);
     }
@@ -873,11 +975,11 @@ class AppState extends ChangeNotifier {
     final site = activeSite;
 
     // Lab profile: the upstream runs alongside the downstream, which owns the main display.
-    final secondary = profile == TestProfile.lab && cfg.direction == IperfDirection.upload;
+    final secondary = _duplex && cfg.direction == IperfDirection.upload;
     if (secondary) {
       upMbps = 0;
     } else {
-      phase = profile == TestProfile.lab ? 'UDP down + up' : cfg.label;
+      phase = _duplex ? 'UDP down + up' : cfg.label;
       currentMbps = 0;
       elapsed = 0;
       plannedSeconds = cfg.durationSeconds;
@@ -892,6 +994,7 @@ class AppState extends ChangeNotifier {
     final client = BackgroundIperfClient(cfg);
     _client = client;
     _clients.add(client);
+    if (!_continuous) _dlLastArrival = null; // separate tests: don't bridge the pause between them
     // A test that moves no data for [noDataSeconds] in a row is ended (the
     // connection is dead); it is recorded as failed with its samples.
     var zeroRun = 0;
@@ -899,6 +1002,7 @@ class AppState extends ChangeNotifier {
     final sub = client.intervals.listen((iv) {
       if (samples.isEmpty) waitingText = null; // clear "switching to ..." once data flows
       samples.add(iv.mbps);
+      if (cfg.direction == IperfDirection.download && cfg.protocol == IperfProtocol.udp) _onDlArrivals(iv, cfg.label);
       zeroRun = iv.mbps < 0.01 ? zeroRun + 1 : 0;
       if (zeroRun >= noDataSeconds && !noDataStop && !_cancelSequence) {
         noDataStop = true;
@@ -933,8 +1037,13 @@ class AppState extends ChangeNotifier {
     try {
       final r = await client.run();
       final stats = SpeedStats.of(samples);
-      if (r.stoppedByUser && samples.isEmpty) setupError = 'stopped'; // Stop before any data
-      final noData = noDataStop ? 'No data for $noDataSeconds s; test ended' : null;
+      final netChange = _netChangeStops.remove(client);
+      if (r.stoppedByUser && samples.isEmpty && !netChange) setupError = 'stopped'; // Stop before any data
+      final noData = netChange
+          ? networkChangedText
+          : noDataStop
+              ? 'No data for $noDataSeconds s; test ended'
+              : null;
       if (noData != null) lastError = '${cfg.label}: $noData';
       record = TestRecord(
         testId: testId,
@@ -945,7 +1054,7 @@ class AppState extends ChangeNotifier {
         jitterMs: r.jitterMs,
         lost: r.lostPackets,
         total: r.totalPackets,
-        stoppedByUser: r.stoppedByUser && !noDataStop,
+        stoppedByUser: r.stoppedByUser && !noDataStop && !netChange,
         error: noData,
         minMbps: stats?.min,
         maxMbps: stats?.max,
@@ -953,7 +1062,7 @@ class AppState extends ChangeNotifier {
         p10Mbps: stats?.p10,
         p90Mbps: stats?.p90,
       );
-      if (noDataStop) {
+      if (noDataStop && !netChange) {
         _failStreak++;
       } else {
         _failStreak = 0;
@@ -965,12 +1074,13 @@ class AppState extends ChangeNotifier {
           : e is SocketException
               ? 'Network error: ${e.osError?.message ?? e.message}'
               : e.toString();
-      final stoppedMidTest = samples.isNotEmpty && (_cancelSequence || noDataStop);
-      if (samples.isEmpty && _cancelSequence) {
+      final netChangeErr = _netChangeStops.remove(client);
+      final stoppedMidTest = samples.isNotEmpty && (_cancelSequence || noDataStop || netChangeErr);
+      if (samples.isEmpty && _cancelSequence && !netChangeErr) {
         setupError = 'stopped'; // you pressed Stop before any data: not a result
-      } else if (skipSetupFailure && samples.isEmpty) {
+      } else if (skipSetupFailure && samples.isEmpty && !netChangeErr) {
         setupError = msg;
-      } else if (!stoppedMidTest) {
+      } else if (!stoppedMidTest && !netChangeErr) {
         lastError = '${cfg.label}: $msg';
       }
       final stats = SpeedStats.of(samples);
@@ -983,8 +1093,12 @@ class AppState extends ChangeNotifier {
               start: start,
               durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
               mbps: samples.reduce((a, b) => a + b) / samples.length,
-              stoppedByUser: !noDataStop,
-              error: noDataStop ? 'No data for $noDataSeconds s; test ended' : null,
+              stoppedByUser: !noDataStop && !netChangeErr,
+              error: netChangeErr
+                  ? networkChangedText
+                  : noDataStop
+                      ? 'No data for $noDataSeconds s; test ended'
+                      : null,
               minMbps: stats?.min,
               maxMbps: stats?.max,
               medianMbps: stats?.median,
@@ -996,10 +1110,10 @@ class AppState extends ChangeNotifier {
               type: cfg.label,
               start: start,
               durationSeconds: DateTime.now().difference(start).inMilliseconds / 1000,
-              error: msg,
+              error: netChangeErr ? networkChangedText : msg,
             );
-      if (setupError != null || stoppedMidTest) {
-        // Not a failure: switching server, or the user stopped.
+      if (setupError != null || stoppedMidTest || netChangeErr) {
+        // Not a failure: switching server, the user stopped, or the network changed.
       } else if (_keepGoing) {
         _failStreak++; // keep going: retry with back-off
       } else {
@@ -1128,6 +1242,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _onProbeResult(ProbeResult r) {
+    if (_sessionStart != null) _probeOutcomes.add((r.sentAt, r.rttMs != null));
     final key = r.sentAt.millisecondsSinceEpoch ~/ 1000;
     final second = _latencySeconds.putIfAbsent(key, () {
       final w = _windowAt(r.sentAt);
@@ -1150,6 +1265,7 @@ class AppState extends ChangeNotifier {
     final probe = _probe;
     final lagSeconds = (probe?.timeout.inSeconds ?? 2) + 1;
     final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - lagSeconds;
+    _scanProbeOutcomes(DateTime.fromMillisecondsSinceEpoch(cutoff * 1000), all: all);
     final keys = _latencySeconds.keys.where((k) => all || k <= cutoff).toList()..sort();
     if (keys.isEmpty) return;
     for (final k in keys) {
@@ -1268,6 +1384,11 @@ class AppState extends ChangeNotifier {
     _activeServer = null;
     _activeByTest.clear();
     dsds.startSession(_sessionStart!);
+    sessionGaps.clear();
+    _dlLastArrival = null;
+    _probeLostStart = null;
+    _probeLostN = 0;
+    _probeOutcomes.clear();
     stalls.resetSession();
     _sessionOffsets = await mailer.markStart();
     if (kDebugApp && settings.recordLogcat) {

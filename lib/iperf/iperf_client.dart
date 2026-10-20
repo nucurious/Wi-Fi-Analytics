@@ -56,7 +56,13 @@ class IperfInterval {
   final double elapsedSeconds;
   final int bytes;
   final double mbps;
-  const IperfInterval(this.elapsedSeconds, this.bytes, this.mbps);
+
+  /// UDP download: arrival times (epoch seconds) of the first and last packet
+  /// in this interval, and gaps > 0.3 s between packets (start, end).
+  final double? firstArrival, lastArrival;
+  final List<(double, double)> gaps;
+  const IperfInterval(this.elapsedSeconds, this.bytes, this.mbps,
+      {this.firstArrival, this.lastArrival, this.gaps = const []});
 }
 
 class IperfResult {
@@ -287,7 +293,16 @@ class IperfClient {
       final delta = total - lastBytes;
       final dt = now - lastTime;
       if (dt > 0) {
-        _intervalController.add(IperfInterval(now, delta, delta * 8 / dt / 1e6));
+        double? first, last;
+        final gaps = <(double, double)>[];
+        for (final s in _udpStreams) {
+          final (f, l, g) = s.takeArrivals();
+          if (f != null && (first == null || f < first)) first = f;
+          if (l != null && (last == null || l > last)) last = l;
+          gaps.addAll(g);
+        }
+        _intervalController.add(IperfInterval(now, delta, delta * 8 / dt / 1e6,
+            firstArrival: first, lastArrival: last, gaps: gaps));
       }
       lastBytes = total;
       lastTime = now;
@@ -658,7 +673,24 @@ class _UdpStream {
   double? _prevTransit;
 
   _UdpStream._(this.socket, this.address, this.port) {
-    _sub = socket.listen(_onEvent);
+    // A network change (e.g. data SIM switch) makes the socket report errors
+    // such as "Network is unreachable"; they must not crash the test engine.
+    _sub = socket.listen(_onEvent, onError: (Object e) => socketError ??= e);
+  }
+
+  Object? socketError;
+
+  // Packet arrival tracking (download), drained once per interval.
+  double? _firstArrival, _lastArrival, _prevArrival;
+  final _gaps = <(double, double)>[];
+  static const gapSeconds = 0.3;
+
+  (double?, double?, List<(double, double)>) takeArrivals() {
+    final out = (_firstArrival, _lastArrival, List.of(_gaps));
+    _firstArrival = null;
+    _lastArrival = null;
+    _gaps.clear();
+    return out;
   }
 
   int get lost => max(0, maxSeq - receivedPackets);
@@ -708,6 +740,11 @@ class _UdpStream {
     final usec = bd.getUint32(4);
     final seq = bd.getUint32(8);
     final arrival = DateTime.now().microsecondsSinceEpoch / 1e6;
+    final prevArrival = _prevArrival;
+    if (prevArrival != null && arrival - prevArrival > gapSeconds) _gaps.add((prevArrival, arrival));
+    _prevArrival = arrival;
+    _firstArrival ??= arrival;
+    _lastArrival = arrival;
     final transit = arrival - (sec + usec / 1e6);
     final prev = _prevTransit;
     if (prev != null) {

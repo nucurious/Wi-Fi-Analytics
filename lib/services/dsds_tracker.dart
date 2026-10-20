@@ -87,6 +87,14 @@ class DsdsEvent {
   }
 }
 
+/// A user-plane interruption seen in the traffic (see AppState traffic gaps).
+class TrafficGap {
+  final DateTime start, end;
+  final String source; // UDP download packets, TWAMP lost, Ping lost
+  TrafficGap(this.start, this.end, this.source);
+  double get seconds => end.difference(start).inMilliseconds / 1000;
+}
+
 class _Attempt {
   final DsdsState from;
   DsdsState to; // latest state on the target SIM (PLMN known before the IP)
@@ -208,7 +216,11 @@ class DsdsTracker {
   /// "Transition Performance" table for this session: rows Switch Count,
   /// Successful switches, Mean, Median, Min, Max, Std Dev (seconds); columns
   /// Hand In, Hand Out (and Other if any), then the other event counts.
-  List<List<Object?>> summary(DateTime end) {
+  /// [gaps]: traffic gaps of the session; each successful switch is matched
+  /// with the longest gap overlapping [started - 3 s, switch + 10 s]
+  /// (UDP download packets preferred, else latency probes) = its user-plane
+  /// interruption as the data saw it.
+  List<List<Object?>> summary(DateTime end, {List<TrafficGap> gaps = const []}) {
     final dirs = ['Hand In', 'Hand Out', if (sessionEvents.any((e) => e.direction == 'Other')) 'Other'];
     final rows = <List<Object?>>[];
     String f(double v) => v.toStringAsFixed(3);
@@ -234,6 +246,31 @@ class DsdsTracker {
     rows.add(['Min (s)', for (final d in dirs) times[d]!.isEmpty ? '' : f(times[d]!.first)]);
     rows.add(['Max (s)', for (final d in dirs) times[d]!.isEmpty ? '' : f(times[d]!.last)]);
     rows.add(['Std Dev (s)', for (final d in dirs) times[d]!.length < 2 ? '' : f(sd(times[d]!))]);
+
+    // User-plane interruption from the traffic itself.
+    double? upTime(DsdsEvent e) {
+      final from = e.started.subtract(const Duration(seconds: 3));
+      final to = e.time.add(const Duration(seconds: 10));
+      final hits = gaps.where((g) => g.end.isAfter(from) && g.start.isBefore(to)).toList();
+      if (hits.isEmpty) return null;
+      final dl = hits.where((g) => g.source.startsWith('UDP')).toList();
+      final use = dl.isNotEmpty ? dl : hits;
+      return use.map((g) => g.seconds).reduce(max);
+    }
+
+    final up = {
+      for (final d in dirs)
+        d: (attempts[d]!.where((e) => e.success == true).map(upTime).whereType<double>().toList()..sort())
+    };
+    rows.add([]);
+    rows.add(['User-plane interruption (from traffic)', for (final _ in dirs) '']);
+    rows.add(['Switches with a traffic gap', for (final d in dirs) up[d]!.length]);
+    rows.add(['UP Mean (s)', for (final d in dirs) up[d]!.isEmpty ? '' : f(up[d]!.reduce((a, b) => a + b) / up[d]!.length)]);
+    rows.add(['UP Median (s)', for (final d in dirs) up[d]!.isEmpty ? '' : f(med(up[d]!))]);
+    rows.add(['UP Min (s)', for (final d in dirs) up[d]!.isEmpty ? '' : f(up[d]!.first)]);
+    rows.add(['UP Max (s)', for (final d in dirs) up[d]!.isEmpty ? '' : f(up[d]!.last)]);
+    rows.add(['UP Std Dev (s)', for (final d in dirs) up[d]!.length < 2 ? '' : f(sd(up[d]!))]);
+    rows.add(['Traffic gaps in session (all causes)', gaps.length]);
     rows.add([]);
     for (final t in ['IP change', 'Data interrupted', 'Data lost']) {
       rows.add(['$t (count)', sessionEvents.where((e) => e.event == t).length]);

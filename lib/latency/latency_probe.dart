@@ -182,7 +182,8 @@ class TwampLightProbe implements LatencyProbe {
     _address = await LatencyProbe.resolve(host);
     final bindAddr = _address!.type == InternetAddressType.IPv6 ? InternetAddress.anyIPv6 : InternetAddress.anyIPv4;
     _socket = await RawDatagramSocket.bind(bindAddr, 0);
-    _sub = _socket!.listen(_onEvent);
+    // Socket errors after a network change must not escape (they would crash the app).
+    _sub = _socket!.listen(_onEvent, onError: (Object _) => _sendFailures++);
     _clock.start();
     final interval = Duration(microseconds: (1e6 / rateHz.clamp(1, 100)).round());
     _send();
@@ -214,8 +215,33 @@ class TwampLightProbe implements LatencyProbe {
     _pending[seq] = (_clock.elapsedMicroseconds, now);
     try {
       sock.send(b.buffer.asUint8List(), _address!, port);
+      _sendFailures = 0;
     } on SocketException {
       // No route for a moment (e.g. switching networks): counts as lost.
+      _sendFailures++;
+    }
+    // Still failing after ~1 s: the socket is tied to a network that is gone
+    // (data SIM switch). Open a new one on the current network.
+    if (_sendFailures >= max(5, rateHz) && !_rebinding) unawaited(_rebind());
+  }
+
+  int _sendFailures = 0;
+  bool _rebinding = false;
+
+  Future<void> _rebind() async {
+    _rebinding = true;
+    try {
+      final old = _socket;
+      await _sub?.cancel();
+      old?.close();
+      final bindAddr = _address!.type == InternetAddressType.IPv6 ? InternetAddress.anyIPv6 : InternetAddress.anyIPv4;
+      _socket = await RawDatagramSocket.bind(bindAddr, 0);
+      _sub = _socket!.listen(_onEvent, onError: (Object _) => _sendFailures++);
+      _sendFailures = 0;
+    } catch (_) {
+      // Try again on the next failures.
+    } finally {
+      _rebinding = false;
     }
   }
 
