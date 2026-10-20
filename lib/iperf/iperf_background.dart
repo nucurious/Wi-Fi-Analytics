@@ -19,10 +19,13 @@ class BackgroundIperfClient {
 
   SendPort? _toWorker;
   bool _stopRequested = false;
+  Isolate? _isolate;
+  Completer<IperfResult>? _done;
+  bool _abandoned = false;
 
   Future<IperfResult> run() async {
     final fromWorker = ReceivePort();
-    final done = Completer<IperfResult>();
+    final done = _done = Completer<IperfResult>();
     fromWorker.listen((Object? msg) {
       if (msg is SendPort) {
         _toWorker = msg;
@@ -42,8 +45,9 @@ class BackgroundIperfClient {
       }
     });
     try {
-      await Isolate.spawn<List<Object>>(_worker, [fromWorker.sendPort, config],
+      _isolate = await Isolate.spawn<List<Object>>(_worker, [fromWorker.sendPort, config],
           onError: fromWorker.sendPort, onExit: fromWorker.sendPort, debugName: 'iperf ${config.label}');
+      if (_abandoned) _isolate?.kill(priority: Isolate.immediate);
       return await done.future;
     } finally {
       fromWorker.close();
@@ -54,6 +58,19 @@ class BackgroundIperfClient {
   void stop() {
     _stopRequested = true;
     _toWorker?.send('stop');
+  }
+
+  /// The network under this test went away (data SIM switch, new default
+  /// network): end it now instead of waiting up to 3 s for the server's final
+  /// results on a dead network, so the next test starts at once. The worker
+  /// gets 0.3 s to tell the server (if that network still works), then is killed.
+  void abandon() {
+    if (_abandoned) return;
+    _abandoned = true;
+    stop();
+    final d = _done;
+    if (d != null && !d.isCompleted) d.completeError(IperfException('Abandoned: network changed'));
+    Timer(const Duration(milliseconds: 300), () => _isolate?.kill(priority: Isolate.immediate));
   }
 
   Future<void> dispose() async {

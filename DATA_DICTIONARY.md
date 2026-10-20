@@ -298,7 +298,7 @@ User-plane interruptions measured from the traffic itself.
 | Column | Meaning |
 |---|---|
 | start_utc, end_utc, start_local, duration_s | The gap (ms precision for UDP download packets) |
-| source | UDP download packets (gap > 0.3 s between received packets; in continuous runs also from the last packet before a restart to the first after it), TWAMP lost / Ping lost (2+ probes lost in a row: from the first lost send to the next answered send) |
+| source | UDP download packets (gap > 0.3 s between received packets; in continuous runs also from the last packet before a restart to the first after it), TWAMP lost / Ping lost (2+ probes lost in a row: from the first lost send to the next answered send), Test restart (network change detected -> first packet of the restarted test: the part of a gap caused by the app reconnecting; not counted in the user-plane interruption statistics) |
 | test_type, profile | What was running |
 | data_sim_slot, data_plmn, cell_ipv6, cell_ipv4, connection, rat, in_hmno_geofence | Network when the gap was logged (after it ended) |
 | latitude, longitude, speed_kmh | Position |

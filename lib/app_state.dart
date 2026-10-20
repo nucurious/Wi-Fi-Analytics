@@ -308,7 +308,8 @@ class AppState extends ChangeNotifier {
     await _pollRadio();
     _radioTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollRadio());
     if (Platform.isAndroid) {
-      _dsdsTimer = Timer.periodic(const Duration(milliseconds: 250), (_) => _pollDsds());
+      // 0.1 s during tests (a transition can be under 2 s), 0.25 s otherwise.
+      _dsdsTimer = Timer.periodic(const Duration(milliseconds: 100), (_) => _pollDsds());
       _wifiTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollWifi());
     }
     _trackTimer = Timer.periodic(const Duration(seconds: 1), (_) => _logTrack());
@@ -492,6 +493,32 @@ class AppState extends ChangeNotifier {
     ]);
   }
 
+  /// Test restart after a network change (detected -> first packet), on the
+  /// Traffic gaps sheet as its own source; not counted as a user-plane gap.
+  void _logRestart(DateTime start, DateTime end, String testType) {
+    final r = radio;
+    final p = position;
+    store.addGap([
+      start.toUtc().toIso8601String(),
+      end.toUtc().toIso8601String(),
+      _local(start),
+      (end.difference(start).inMilliseconds / 1000).toStringAsFixed(3),
+      'Test restart (network change detected -> first packet)',
+      testType,
+      running ? profile.label : null,
+      r.raw['dataSimSlot'],
+      r.raw['dataPlmn'],
+      r.raw['cellIpv6'],
+      r.raw['cellIpv4'],
+      r.connection,
+      r.rat,
+      geofence.inHmno == null ? null : (geofence.inHmno! ? 'yes' : 'no'),
+      p?.latitude.toStringAsFixed(7),
+      p?.longitude.toStringAsFixed(7),
+      p == null || p.speed < 0 ? null : (p.speed * 3.6).toStringAsFixed(1),
+    ]);
+  }
+
   /// UDP download packets: gaps inside a test, and (continuous runs) from the
   /// last packet of a test to the first of its restart.
   void _onDlArrivals(IperfInterval iv, String testType) {
@@ -553,6 +580,10 @@ class AppState extends ChangeNotifier {
   final dsds = DsdsTracker();
   DsdsEvent? lastDsds;
   String? _defaultNet;
+  DateTime? _netChangeAt; // tests were restarted for a network change at this time
+  double? lastRestartSeconds; // network change detected -> first packet of the restarted test
+  DateTime? lastRestartAt;
+  DateTime _lastDsdsPoll = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// "Hand In SIM1 -> SIM2, IP already up · traffic stopped 1.8 s" for the Test screen.
   String? get lastDsdsText {
@@ -567,7 +598,10 @@ class AppState extends ChangeNotifier {
       final s = g.end.difference(g.start).inMilliseconds / 1000;
       if (up == null || s > up) up = s;
     }
-    return up == null ? e.summary : '${e.summary} · traffic stopped ${up.toStringAsFixed(1)} s';
+    final r = lastRestartAt != null && !lastRestartAt!.isBefore(e.time.subtract(const Duration(seconds: 2)))
+        ? ' (test restart ${lastRestartSeconds!.toStringAsFixed(1)} s of it)'
+        : '';
+    return up == null ? e.summary : '${e.summary} · traffic stopped ${up.toStringAsFixed(1)} s$r';
   }
   Timer? _dsdsTimer;
   bool _dsdsBusy = false;
@@ -575,6 +609,9 @@ class AppState extends ChangeNotifier {
   /// Android: data SIM and cellular IP 4 times a second; logs SIM switches and IP changes.
   Future<void> _pollDsds() async {
     if (_dsdsBusy) return;
+    final pollAt = DateTime.now();
+    if (!running && pollAt.difference(_lastDsdsPoll).inMilliseconds < 240) return;
+    _lastDsdsPoll = pollAt;
     _dsdsBusy = true;
     try {
       final sw = Stopwatch()..start();
@@ -591,9 +628,10 @@ class AppState extends ChangeNotifier {
         _defaultNet = net;
         if (prev != null && prev != net && net.isNotEmpty && running && _continuous && !_cancelSequence &&
             !events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change')) {
+          _netChangeAt = DateTime.now();
           for (final c in List.of(_clients)) {
             _netChangeStops.add(c);
-            c.stop();
+            c.abandon();
           }
         }
       }
@@ -637,9 +675,10 @@ class AppState extends ChangeNotifier {
       }
       if (running && events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change') && !_cancelSequence) {
         // The test sockets belong to the old network; restart them on the new one.
+        _netChangeAt = DateTime.now();
         for (final c in List.of(_clients)) {
           _netChangeStops.add(c);
-          c.stop();
+          c.abandon();
         }
       }
       if (events.isNotEmpty) notifyListeners();
@@ -1257,6 +1296,17 @@ class AppState extends ChangeNotifier {
         noDataNow = zeroRun;
         if (iv.mbps >= 0.01) lastGoodMbps = iv.mbps;
       }
+      final changedAt = _netChangeAt;
+      if (changedAt != null && iv.mbps >= 0.01) {
+        // First data after a restart for a network change: how long the restart took.
+        final first = iv.firstArrival == null
+            ? DateTime.now()
+            : DateTime.fromMicrosecondsSinceEpoch((iv.firstArrival! * 1e6).round());
+        _netChangeAt = null;
+        lastRestartSeconds = max(0, first.difference(changedAt).inMilliseconds / 1000);
+        lastRestartAt = first;
+        _logRestart(changedAt, first, cfg.label);
+      }
       if (zeroRun >= noDataSeconds && !noDataStop && !_cancelSequence) {
         noDataStop = true;
         client.stop();
@@ -1330,6 +1380,7 @@ class AppState extends ChangeNotifier {
       // "Network is unreachable" in a continuous run = the network under the test
       // went away (data SIM switch, Wi-Fi left): restart at once like a network change.
       final unreachable = _continuous && !_cancelSequence && RegExp(r'unreachable|errno = 101').hasMatch(msg);
+      if (unreachable) _netChangeAt ??= DateTime.now();
       final netChangeErr = _netChangeStops.remove(client) || unreachable;
       final stoppedMidTest = samples.isNotEmpty && (_cancelSequence || noDataStop || netChangeErr);
       if (samples.isEmpty && _cancelSequence && !netChangeErr) {
