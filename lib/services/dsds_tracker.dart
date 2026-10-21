@@ -40,8 +40,8 @@ class DsdsState {
 
   /// Name of a data-SIM PLMN for the screen and reports.
   static String plmnName(String p) => switch (p) {
-        '314020' => 'HMNO 314 020',
-        '311480' => 'Spectrum Mobile (Verizon) 311 480',
+        '314020' => 'Spectrum HMNO 314 020',
+        '311480' => 'Spectrum MNO (Verizon) 311 480',
         _ => p,
       };
 
