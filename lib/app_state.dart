@@ -98,7 +98,7 @@ class Settings {
     this.twampPort = 862,
     this.latencyRateHz = 10,
     this.twampPacketBytes = 64,
-    this.pingHost = '1.1.1.1',
+    this.pingHost = '8.8.8.8',
     this.latencyDuration = 60,
     this.repeatUntilStopped = false,
     this.repeatIntervalSeconds = 60,
@@ -194,7 +194,8 @@ class Settings {
       twampPort: twampPort ?? (j['twampPort'] as num?)?.toInt() ?? d.twampPort,
       latencyRateHz: (j['latencyRateHz'] as num?)?.toInt() ?? d.latencyRateHz,
       twampPacketBytes: (j['twampPacketBytes'] as num?)?.toInt() ?? d.twampPacketBytes,
-      pingHost: j['pingHost'] as String? ?? d.pingHost,
+      // 1.1.1.1 was the old default; ICMP to it was blocked on some lab networks, so it moves to 8.8.8.8.
+      pingHost: (j['pingHost'] as String?) == null || j['pingHost'] == '1.1.1.1' ? d.pingHost : j['pingHost'] as String,
       latencyDuration: (j['latencyDuration'] as num?)?.toInt() ?? d.latencyDuration,
       repeatUntilStopped: j['repeatUntilStopped'] as bool? ?? d.repeatUntilStopped,
       repeatIntervalSeconds: (j['repeatIntervalSeconds'] as num?)?.toInt() ?? d.repeatIntervalSeconds,
@@ -1322,12 +1323,23 @@ class AppState extends ChangeNotifier {
       cfg = _onServer(base, active.$1, active.$2);
     }
     final tried = <String>{};
+    var sameRetries = 0;
     for (var attempt = 0;; attempt++) {
       tried.add('${cfg.host}:${cfg.port}');
       final failed = await _runAttempt(cfg, skipSetupFailure: settings.rotateServers);
       waitingText = null;
       if (failed == null || _cancelSequence) return;
-      final next = attempt < 7 && !_cancelSequence
+      // Just after a network change the server may still hold the old (dead) test and answer busy:
+      // wait a moment and retry the same server before hopping to another one.
+      if (sameRetries < 2 && _netChangeAt != null && failed.toLowerCase().contains('busy')) {
+        sameRetries++;
+        waitingText = '${cfg.host}:${cfg.port} still busy after the network change, retrying ($sameRetries/2)';
+        notifyListeners();
+        await Future.delayed(const Duration(seconds: 3));
+        if (_cancelSequence) return;
+        continue;
+      }
+      final next = attempt < 7 + sameRetries && !_cancelSequence
           ? nextServer(cfg.host, cfg.port,
               busy: failed.toLowerCase().contains('busy'),
               refused: failed.toLowerCase().contains('refused'),
@@ -1748,7 +1760,8 @@ class AppState extends ChangeNotifier {
 
 
   /// File names say Lab only for the Lab profile; everything else is Field.
-  bool labFor(TestProfile p) => p == TestProfile.lab;
+  bool labFor(TestProfile p) =>
+      settings.testEnvironment == 'lab' || (settings.testEnvironment != 'field' && p == TestProfile.lab);
 
   bool get inLab => labFor(profile);
 
@@ -1806,6 +1819,9 @@ class AppState extends ChangeNotifier {
   Future<String> exportPrefix() async {
     final env = await store.testEnvironments();
     final name = fileName(null, null, true);
+    // Settings > File names can force Field or Lab (for example a Manual run in a lab chamber).
+    if (settings.testEnvironment == 'lab') return 'Lab${name.substring('Field'.length)}';
+    if (settings.testEnvironment == 'field') return name;
     if (env.lab && !env.field) return 'Lab${name.substring('Field'.length)}';
     if (env.lab && env.field) return 'Mixed${name.substring('Field'.length)}';
     return name;
