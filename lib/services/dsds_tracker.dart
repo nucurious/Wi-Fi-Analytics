@@ -298,5 +298,60 @@ class DsdsTracker {
     return rows;
   }
 
+  /// User-plane interruption of one successful switch from the traffic: the longest gap that starts
+  /// within 3 s before to 10 s after it and is not longer than [maxS] (longer ones are test boundaries).
+  /// UDP download gaps are preferred over lost probes. Null when the traffic showed no gap.
+  double? upInterruption(DsdsEvent e, List<TrafficGap> gaps, {double maxS = 30}) {
+    final from = e.started.subtract(const Duration(seconds: 3));
+    final to = e.time.add(const Duration(seconds: 10));
+    final hits = gaps.where((g) => !g.start.isBefore(from) && !g.start.isAfter(to) && g.seconds <= maxS).toList();
+    if (hits.isEmpty) return null;
+    final dl = hits.where((g) => g.source.startsWith('UDP')).toList();
+    return (dl.isNotEmpty ? dl : hits).map((g) => g.seconds).reduce(max);
+  }
+
+  /// Transition table in the report layout: complete transitions, mean, std, min, 25 / 50 / 75 / 90 %,
+  /// median, max (seconds) for Hand-In and Hand-Out. [value] gives the number for one successful switch.
+  List<List<String>> transitionTable(double? Function(DsdsEvent e) value) {
+    final dirs = ['Hand In', 'Hand Out', if (sessionEvents.any((e) => e.direction == 'Other')) 'Other'];
+    final names = {'Hand In': 'Hand-In', 'Hand Out': 'Hand-Out', 'Other': 'Other'};
+    final cols = <String, List<double>>{
+      for (final d in dirs)
+        d: (sessionEvents
+            .where((e) => e.direction == d && e.event == 'SIM switch' && e.success == true)
+            .map(value)
+            .whereType<double>()
+            .toList()
+          ..sort()),
+    };
+    double pct(List<double> v, double p) {
+      final pos = (v.length - 1) * p;
+      final lo = pos.floor(), hi = pos.ceil();
+      return v[lo] + (v[hi] - v[lo]) * (pos - lo);
+    }
+
+    double sd(List<double> v) {
+      final m = v.reduce((a, b) => a + b) / v.length;
+      return sqrt(v.map((x) => (x - m) * (x - m)).reduce((a, b) => a + b) / (v.length - 1));
+    }
+
+    String f(double x) => x.toStringAsFixed(2);
+    List<String> row(String label, String Function(List<double>) fn) =>
+        [label, for (final d in dirs) cols[d]!.isEmpty ? '' : fn(cols[d]!)];
+    return [
+      ['', for (final d in dirs) names[d]!],
+      ['complete transitions', for (final d in dirs) '${cols[d]!.length}'],
+      row('mean', (v) => f(v.reduce((a, b) => a + b) / v.length)),
+      row('std', (v) => v.length < 2 ? '' : f(sd(v))),
+      row('min', (v) => f(v.first)),
+      row('25%', (v) => f(pct(v, 0.25))),
+      row('50%', (v) => f(pct(v, 0.50))),
+      row('75%', (v) => f(pct(v, 0.75))),
+      row('90%', (v) => f(pct(v, 0.90))),
+      row('median', (v) => f(pct(v, 0.50))),
+      row('max', (v) => f(v.last)),
+    ];
+  }
+
   List<String> summaryHeader = const ['Transition Type', 'Hand In', 'Hand Out'];
 }
