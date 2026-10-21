@@ -35,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
   late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno, _spWifi;
+  late bool _walkBack;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts, _spSsids, _scanSec;
   late String _env;
   bool _showPass = false;
@@ -89,6 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _walkSettle = TextEditingController(text: '${s.walkSettleSeconds}');
     _walkGap = TextEditingController(text: '${s.walkMinGapSeconds}');
     _walkRoam = s.walkTriggerOnRoam;
+    _walkBack = s.walkBackToBack;
     _email = s.emailResults;
     _emailTo = TextEditingController(text: s.emailTo);
     _smtpUser = TextEditingController(text: s.smtpUser);
@@ -149,6 +151,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       walkSettleSeconds: int.parse(_walkSettle.text),
       walkMinGapSeconds: int.parse(_walkGap.text),
       walkTriggerOnRoam: _walkRoam,
+      walkBackToBack: _walkBack,
       emailResults: _email,
       emailTo: _emailTo.text.trim(),
       smtpUser: _smtpUser.text.trim(),
@@ -310,6 +313,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: _walkRoam,
             onChanged: (v) {
               setState(() => _walkRoam = v);
+              _scheduleAutoSave();
+            },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Keep testing while on Wi-Fi'),
+            subtitle: const Text('Starts another download + upload as soon as the minimum time above has passed, '
+                'as long as the phone stays on Wi-Fi with internet. Set the minimum time to 0 for back-to-back tests.'),
+            value: _walkBack,
+            onChanged: (v) {
+              setState(() => _walkBack = v);
               _scheduleAutoSave();
             },
           ),
