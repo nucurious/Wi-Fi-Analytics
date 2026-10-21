@@ -302,9 +302,8 @@ class _StatusCard extends StatelessWidget {
     final d = state.dsds.current;
     if (d != null && d.known) {
       final ip = d.ipv6.isNotEmpty ? d.ipv6.split(',').first : d.ipv4.split(',').first;
-      rows.add(_row(context, Icons.sim_card, 'Data SIM', [
-        d.label,
-        if (d.plmn.isNotEmpty) d.plmn,
+      rows.add(_row(context, Icons.sim_card, 'DDS', [
+        d.dds,
         if (ip.isNotEmpty) ip else 'no IP',
         if (state.lastDsdsText != null) 'last: ${state.lastDsdsText}',
       ].join('  ·  ')));
