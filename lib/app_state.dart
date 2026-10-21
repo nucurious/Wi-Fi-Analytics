@@ -25,6 +25,7 @@ import 'services/logcat_recorder.dart';
 import 'services/stall_monitor.dart';
 import 'services/wifi_join_tracker.dart';
 import 'services/session_mailer.dart';
+import 'services/screen_recorder.dart';
 
 class Settings {
   String host;
@@ -56,6 +57,7 @@ class Settings {
   int walkSettleSeconds; // wait after joining Wi-Fi before testing
   int walkMinGapSeconds; // minimum time between two walk speed tests
   bool walkTriggerOnRoam; // also test when the phone moves to a new AP (Android)
+  bool walkBackToBack; // keep testing (after the minimum gap) while the phone stays on Wi-Fi
 
   // Email results when a session stops (Gmail SMTP)
   bool emailResults;
@@ -81,8 +83,8 @@ class Settings {
   String locationCode; // e.g. DAL; blank = from the site or GPS
 
   Settings({
-    this.host = 'dal.speedtest.clouvider.net', // public: 10 ports (5200-5209), UDP, IPv6
-    this.port = 5200,
+    this.host = '54.90.236.69', // first of the project's own iperf3 servers; public servers are the fallback
+    this.port = 24101,
     this.tcpDuration = 10,
     this.tcpParallel = 4,
     this.udpMbps = 10,
@@ -104,6 +106,7 @@ class Settings {
     this.walkSettleSeconds = 5,
     this.walkMinGapSeconds = 60,
     this.walkTriggerOnRoam = false,
+    this.walkBackToBack = true,
     this.emailResults = true,
     this.emailTo = 'rockfordtest7@gmail.com',
     this.smtpUser = '',
@@ -145,6 +148,7 @@ class Settings {
         'walkSettleSeconds': walkSettleSeconds,
         'walkMinGapSeconds': walkMinGapSeconds,
         'walkTriggerOnRoam': walkTriggerOnRoam,
+        'walkBackToBack': walkBackToBack,
         'emailResults': emailResults,
         'emailTo': emailTo,
         'smtpUser': smtpUser,
@@ -170,12 +174,13 @@ class Settings {
     // (port stuck on the end) or with stray spaces: the port moves to its field.
     final (savedHost, hostPort) = splitHostPort((j['host'] as String?) ?? '');
     final (savedTwamp, twampPort) = splitHostPort((j['twampHost'] as String?) ?? d.twampHost);
+    // The lab server (no longer used) and the old default (Clouvider Dallas:5200) move to the new default.
+    final savedPort = hostPort ?? (j['port'] as num?)?.toInt();
+    final oldDefault = savedHost == 'dal.speedtest.clouvider.net' && (savedPort ?? 5200) == 5200;
+    final keepSaved = savedHost.isNotEmpty && !_labServers.contains(savedHost) && !oldDefault;
     return Settings(
-      // The lab server (no longer used) moves to the public default.
-      host: savedHost.isNotEmpty && !_labServers.contains(savedHost) ? savedHost : d.host,
-      port: savedHost.isNotEmpty && !_labServers.contains(savedHost)
-          ? (hostPort ?? (j['port'] as num?)?.toInt() ?? d.port)
-          : d.port,
+      host: keepSaved ? savedHost : d.host,
+      port: keepSaved ? (savedPort ?? d.port) : d.port,
       tcpDuration: (j['tcpDuration'] as num?)?.toInt() ?? d.tcpDuration,
       tcpParallel: (j['tcpParallel'] as num?)?.toInt() ?? d.tcpParallel,
       udpMbps: (j['udpMbps'] as num?)?.toDouble() ?? d.udpMbps,
@@ -197,6 +202,7 @@ class Settings {
       walkSettleSeconds: (j['walkSettleSeconds'] as num?)?.toInt() ?? d.walkSettleSeconds,
       walkMinGapSeconds: (j['walkMinGapSeconds'] as num?)?.toInt() ?? d.walkMinGapSeconds,
       walkTriggerOnRoam: j['walkTriggerOnRoam'] as bool? ?? d.walkTriggerOnRoam,
+      walkBackToBack: j['walkBackToBack'] as bool? ?? d.walkBackToBack,
       emailResults: j['emailResults'] as bool? ?? d.emailResults,
       emailTo: j['emailTo'] as String? ?? d.emailTo,
       smtpUser: j['smtpUser'] as String? ?? d.smtpUser,
@@ -1823,12 +1829,15 @@ class AppState extends ChangeNotifier {
     final offsets = _sessionOffsets;
     _sessionStart = null;
     _sessionOffsets = null;
+    // A running screen recording ends with the session so the MP4 is complete.
+    await ScreenRecorder.instance.stopIfRecording();
     // Debug app: logcat parts stay in the logcat folder (Data > Share logcat)
     // unless they are emailed with the session below.
     final logcatFiles = logcat.running ? await logcat.stop() : <File>[];
     if (start == null || offsets == null) return;
     final end = DateTime.now();
     final prefix = fileName(_sessionProfile, start);
+    final recordings = await ScreenRecorder.instance.takeRecordings(start, end);
     final tests = recent.where((r) => !r.start.isBefore(start)).toList().reversed.toList();
     String two(int n) => n.toString().padLeft(2, '0');
     final dur = end.difference(start);
@@ -1860,6 +1869,10 @@ class AppState extends ChangeNotifier {
       ..writeln('DSDS transitions and Transition performance (Hand In / Hand Out), for this session only.');
     b.writeln('UI freezes: ${stalls.count == 0 ? 'none' : '${stalls.count} (worst ${stalls.worstMs} ms), see the UI stalls sheet'}');
     b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
+    if (recordings.isNotEmpty) {
+      b.writeln('Screen recording: ${recordings.map((f) => '${f.uri.pathSegments.last} (${(f.lengthSync() / 1048576).toStringAsFixed(1)} MB)').join(', ')}. '
+          'Saved in the run folder, not emailed (too large): Export this run, or adb pull the run folder.');
+    }
     if (logcatFiles.isNotEmpty) {
       final off = start.timeZoneOffset;
       b.writeln('Also attached: logcat for this session (${logcatFiles.length} gzip file${logcatFiles.length == 1 ? '' : 's'}, '
@@ -1905,6 +1918,13 @@ class AppState extends ChangeNotifier {
         // logcat's session_info.txt belongs with the run too.
         final info = File('${logcat.sessionDir?.path ?? ''}/session_info.txt');
         if (logcatFiles.isNotEmpty && await info.exists()) await info.copy('${runDir.path}/logcat_session_info.txt');
+        // ScreenRec move: screen recordings made during this session go into the run folder.
+        for (final rec in recordings) {
+          try {
+            await rec.copy('${runDir.path}/${rec.uri.pathSegments.last}');
+            await rec.delete();
+          } catch (_) {}
+        }
         lastRun = runDir;
         notifyListeners();
         if (settings.emailResults) unawaited(sendPendingEmail());
@@ -1995,6 +2015,12 @@ class AppState extends ChangeNotifier {
           reason = 'AP change $lastBssid -> ${r.wifiBssid}';
         }
         if (!r.isWifi) pendingSince = null; // left Wi-Fi before the test began
+        // Back-to-back: still on Wi-Fi with internet and nothing queued: queue another round.
+        // The minimum gap below decides when it actually starts.
+        if (settings.walkBackToBack && r.isWifi && r.internetOk && pendingSince == null) {
+          pendingSince = now.subtract(Duration(seconds: settings.walkSettleSeconds));
+          reason = 'Repeat on Wi-Fi';
+        }
         lastConn = r.connection;
         if (r.wifiBssid != null) lastBssid = r.wifiBssid;
 
@@ -2042,7 +2068,9 @@ class AppState extends ChangeNotifier {
             continue;
           }
           waitingText = settled
-              ? 'Wi-Fi joined, next speed test in ${gapLeft}s'
+              ? (reason == 'Repeat on Wi-Fi'
+                  ? 'Walk: on Wi-Fi ${r.wifiSsid ?? ''}, next speed test in ${gapLeft}s'
+                  : 'Wi-Fi joined, next speed test in ${gapLeft}s')
               : 'Wi-Fi joined, testing in ${settings.walkSettleSeconds - now.difference(pendingSince).inSeconds}s';
         } else {
           waitingText = r.isWifi
