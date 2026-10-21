@@ -37,7 +37,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno, _spWifi;
   late bool _walkBack;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts, _spSsids, _scanSec;
-  late String _env;
+  late String _env, _callRole;
+  late TextEditingController _pairId;
   bool _showPass = false;
   late String _driveDir;
   bool _loaded = false;
@@ -98,6 +99,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _imei = TextEditingController(text: s.imeiLast4);
     _locCode = TextEditingController(text: s.locationCode);
     _env = s.testEnvironment;
+    _callRole = s.callRole;
+    _pairId = TextEditingController(text: s.pairId);
     setState(() => _loaded = true);
   }
 
@@ -167,6 +170,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       logcatParts: int.parse(_lcParts.text),
       testEnvironment: _env,
       locationCode: _locCode.text.trim().toUpperCase(),
+      pairId: _pairId.text.trim().toUpperCase(),
+      callRole: _callRole,
     ));
     if (!mounted) return;
     if (silent) return;
@@ -409,6 +414,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             textCapitalization: TextCapitalization.characters,
             inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')), LengthLimitingTextInputFormatter(6)],
+          ),
+          const SizedBox(height: 16),
+          _section('Call pair'),
+          Text('For two-phone call tests. The Pair ID and role go into the file names, so the two phones\' files can be matched at HQ.',
+              style: Theme.of(context).textTheme.bodySmall),
+          TextFormField(
+            controller: _pairId,
+            decoration: const InputDecoration(labelText: 'Pair ID (optional)', hintText: 'P1, P2 ...'),
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')), LengthLimitingTextInputFormatter(6)],
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: '', label: Text('None')),
+              ButtonSegment(value: 'Caller', label: Text('Caller')),
+              ButtonSegment(value: 'Callee', label: Text('Callee')),
+            ],
+            selected: {_callRole},
+            onSelectionChanged: (v) {
+              setState(() => _callRole = v.first);
+              _scheduleAutoSave();
+            },
           ),
           const SizedBox(height: 16),
           _section('Long runs (overnight / weekend)'),
