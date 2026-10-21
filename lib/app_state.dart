@@ -383,7 +383,11 @@ class AppState extends ChangeNotifier {
     _radioBusy = true;
     try {
       final sw = Stopwatch()..start();
-      radio = RadioSnapshot(await RadioInfo.get());
+      final snap = Map<String, dynamic>.of(await RadioInfo.get());
+      for (final e in _cellIp.entries) {
+        if ((snap[e.key] ?? '').toString().isEmpty) snap[e.key] = e.value;
+      }
+      radio = RadioSnapshot(snap);
       final took = sw.elapsedMilliseconds;
       if (took >= 3000) stalls.report('Slow native call', took, 'getRadioInfo (cell / Wi-Fi read)');
       final lag = (radio.raw['mainLagMs'] as num?)?.toInt() ?? 0;
@@ -680,6 +684,8 @@ class AppState extends ChangeNotifier {
   final dsds = DsdsTracker();
   DsdsEvent? lastDsds;
   String? _defaultNet;
+  // Cellular interface and IPs from the 4 Hz data-state poll; merged into radio rows so they are logged while on Wi-Fi too.
+  Map<String, dynamic> _cellIp = const {};
   DateTime? _netChangeAt; // tests were restarted for a network change at this time
   double? lastRestartSeconds; // network change detected -> first packet of the restarted test
   DateTime? lastRestartAt;
@@ -719,6 +725,10 @@ class AppState extends ChangeNotifier {
       if (sw.elapsedMilliseconds >= 3000) {
         stalls.report('Slow native call', sw.elapsedMilliseconds, 'getDataState (SIM / IP read)');
       }
+      _cellIp = {
+        for (final k in const ['cellIface', 'cellIpv4', 'cellIpv6'])
+          if ((state[k] ?? '').toString().isNotEmpty) k: state[k],
+      };
       final events = dsds.update(state, onWifi: radio.isWifi);
       // Default network changed (new data SIM network, Wi-Fi up or down): continuous
       // streams restart on the new one instead of waiting for the old one to die.
@@ -775,7 +785,8 @@ class AppState extends ChangeNotifier {
           ...radio.csvValues,
         ]);
       }
-      if (running && events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change') && !_cancelSequence) {
+      // While Wi-Fi is the default network the test runs on Wi-Fi: a cellular interface / IP change does not affect it, so no restart.
+      if (running && !radio.isWifi && events.any((e) => e.event == 'SIM switch' || e.event == 'SIM switch (late)' || e.event == 'IP change') && !_cancelSequence) {
         // The test sockets belong to the old network; restart them on the new one.
         _netChangeAt = DateTime.now();
         crumb('SIM switch / IP change: restart ${_clients.length} streams');
