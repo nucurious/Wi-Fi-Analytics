@@ -123,7 +123,7 @@ class SessionMailer {
       final out = Directory('${outbox.path}/${filePrefix}__${DateTime.now().millisecondsSinceEpoch}');
       await out.create(recursive: true);
       for (final f in (await dir.list().toList()).whereType<File>()) {
-        if (f.path.endsWith('.xlsx') || f.path.endsWith('.gz')) {
+        if (f.path.endsWith('.xlsx') || f.path.endsWith('.gz') || f.path.endsWith('.pptx')) {
           await f.copy('${out.path}/${f.uri.pathSegments.last}');
         }
       }
@@ -187,12 +187,14 @@ class SessionMailer {
         final all = (await dir.list().toList()).whereType<File>().toList()..sort((a, b) => a.path.compareTo(b.path));
         final workbooks = all.where((f) => f.path.endsWith('.xlsx')).toList();
         final logcat = all.where((f) => f.path.endsWith('.txt.gz')).toList();
+        final decks = all.where((f) => f.path.endsWith('.pptx')).toList();
         final gzips = all.where((f) => f.path.endsWith('.gz') && !f.path.endsWith('.txt.gz')).toList();
         // The Excel workbook if it fits in one email, else the CSVs split over several.
         final files = [
           ...(workbooks.isNotEmpty && (gzips.isEmpty || await workbooks.first.length() <= maxEmailBytes))
               ? workbooks
               : gzips,
+          ...decks,
           ...logcat,
         ];
         final note = gzips.isNotEmpty && files.contains(gzips.first) && workbooks.isNotEmpty
@@ -238,7 +240,9 @@ class SessionMailer {
                 FileAttachment(f,
                     contentType: f.path.endsWith('.xlsx')
                         ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        : 'application/gzip',
+                        : f.path.endsWith('.pptx')
+                            ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                            : 'application/gzip',
                     fileName: f.uri.pathSegments.last),
             ];
           await send(message, server, timeout: const Duration(minutes: 5));
