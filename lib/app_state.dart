@@ -26,6 +26,7 @@ import 'services/stall_monitor.dart';
 import 'services/wifi_join_tracker.dart';
 import 'services/session_mailer.dart';
 import 'services/pptx_writer.dart';
+import 'services/background_keeper.dart';
 import 'services/screen_recorder.dart';
 
 class Settings {
@@ -100,7 +101,7 @@ class Settings {
     this.latencyRateHz = 10,
     this.twampPacketBytes = 64,
     this.pingHost = '8.8.8.8',
-    this.latencyDuration = 60,
+    this.latencyDuration = kVideoCall ? 0 : 60,
     this.repeatUntilStopped = false,
     this.repeatIntervalSeconds = 60,
     this.driveUdpDirection = 'download',
@@ -1884,6 +1885,7 @@ class AppState extends ChangeNotifier {
   int get emailPending => mailer.pendingCount();
 
   Future<void> _beginSession(TestProfile p) async {
+    await BackgroundKeeper.start(); // Video Call Analytics: foreground service, no-op in the other builds
     _sessionStart = DateTime.now();
     _sessionProfile = p;
     _activeServer = null;
@@ -1906,6 +1908,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _endSession() async {
+    await BackgroundKeeper.stop();
     crumb('session end: building workbook');
     final start = _sessionStart;
     final offsets = _sessionOffsets;
