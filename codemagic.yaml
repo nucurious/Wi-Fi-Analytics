@@ -62,6 +62,35 @@ workflows:
     artifacts:
       - build/app/outputs/flutter-apk/Analytics_debug_ver*.apk
 
+  # ---------------------------------------------------------------- Video Call Analytics (Android)
+  # Separate app (own application ID, installs next to the others) for video call sessions:
+  # keeps logging in the background with a foreground service while a call app is on screen.
+  video-call-apk:
+    name: Video Call Analytics (Android)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        BUNDLE_ID: com.example.videocallanalytics
+        APP_NAME: Video_Call_Analytics
+        VIDEO_CALL: "true"
+    scripts:
+      - name: Generate platform folders
+        script: flutter create --no-pub --org com.wifianalytics --project-name wifi_analytics --platforms=android .
+      - name: Get packages
+        script: flutter pub get
+      - name: Apply app settings
+        script: dart run tool/setup.dart
+      - name: Build APK
+        script: |
+          VERSION=1.5.0
+          flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER \
+            --dart-define=VIDEO_CALL=true --dart-define=APP_NAME=Video_Call_Analytics
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Video_Call_Analytics_v$VERSION.apk
+    artifacts:
+      - build/app/outputs/flutter-apk/Video_Call_Analytics_v*.apk
+
   # ---------------------------------------------------------------- iPhone -> TestFlight
   ios-testflight:
     name: iPhone TestFlight
