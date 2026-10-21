@@ -8,6 +8,7 @@ import '../app_config.dart';
 import '../app_state.dart';
 import 'share_run.dart';
 import '../models.dart';
+import '../services/screen_recorder.dart';
 
 class TestScreen extends StatefulWidget {
   final AppState state;
@@ -329,6 +330,40 @@ class _StatusCard extends StatelessWidget {
         label: Text(state.stalls.marks == 0 ? 'Mark freeze' : 'Mark freeze (${state.stalls.marks} marked)'),
       ),
     ));
+    // Screen recording (Android): the phone asks for permission each time.
+    if (Platform.isAndroid) {
+      rows.add(Align(
+        alignment: Alignment.centerRight,
+        child: ListenableBuilder(
+          listenable: ScreenRecorder.instance,
+          builder: (context, _) {
+            final r = ScreenRecorder.instance;
+            String two(int n) => n.toString().padLeft(2, '0');
+            final el = r.elapsed;
+            return TextButton.icon(
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                if (r.recording) {
+                  await r.stop();
+                  messenger.showSnackBar(const SnackBar(
+                      content: Text('Screen recording saved. It goes into the run folder when the test run ends.')));
+                } else {
+                  final ok = await r.start();
+                  if (!ok) {
+                    messenger.showSnackBar(SnackBar(content: Text(r.error ?? 'Screen recording did not start')));
+                  }
+                }
+              },
+              icon: Icon(r.recording ? Icons.stop_circle : Icons.fiber_manual_record, size: 18,
+                  color: r.recording ? Colors.red : null),
+              label: Text(r.recording
+                  ? 'Stop screen recording (${two(el.inMinutes)}:${two(el.inSeconds % 60)})'
+                  : 'Record screen'),
+            );
+          },
+        ),
+      ));
+    }
     if (Platform.isAndroid && state.settings.spectrumWifi) {
       rows.add(_row(context, Icons.wifi_find, 'Spectrum Wi-Fi', [
         state.wifiJoin.status(DateTime.now()),
