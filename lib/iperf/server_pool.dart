@@ -66,7 +66,8 @@ final _rnd = Random();
       if (!tried.contains('${current.host}:$p')) return (current.host, p);
     }
   }
-  final start = current == null ? 0 : publicServers.indexOf(current) + 1;
+  // Always scan from the top of the list: 54.90.236.69, then 3.125.95.89, then the public servers.
+  const start = 0;
   for (var i = 0; i < publicServers.length; i++) {
     final s = publicServers[(start + i) % publicServers.length];
     if (s == current) continue;
