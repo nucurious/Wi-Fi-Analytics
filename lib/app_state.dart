@@ -27,6 +27,7 @@ import 'services/wifi_join_tracker.dart';
 import 'services/session_mailer.dart';
 import 'services/pptx_writer.dart';
 import 'services/background_keeper.dart';
+import 'services/ntp_check.dart';
 import 'services/screen_recorder.dart';
 
 class Settings {
@@ -83,6 +84,8 @@ class Settings {
   // Output file names
   String testEnvironment; // 'auto' | 'field' | 'lab'
   String locationCode; // e.g. DAL; blank = from the site or GPS
+  String pairId; // two-phone call tests: the pair this phone belongs to (P1, P2 ...), blank = none
+  String callRole; // '' | 'Caller' | 'Callee'
 
   Settings({
     this.host = '54.90.236.69', // first of the project's own iperf3 servers; public servers are the fallback
@@ -124,6 +127,8 @@ class Settings {
     this.logcatParts = 50,
     this.testEnvironment = 'auto',
     this.locationCode = '',
+    this.pairId = '',
+    this.callRole = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -166,6 +171,8 @@ class Settings {
         'logcatParts': logcatParts,
         'testEnvironment': testEnvironment,
         'locationCode': locationCode,
+        'pairId': pairId,
+        'callRole': callRole,
       };
 
   static const _labServers = {'96.37.191.0', '2600:6ce6:4406:6006:8b6e:251:99cb:9c38', '10.92.5.100'};
@@ -221,6 +228,8 @@ class Settings {
       logcatParts: (j['logcatParts'] as num?)?.toInt() ?? d.logcatParts,
       testEnvironment: j['testEnvironment'] as String? ?? d.testEnvironment,
       locationCode: j['locationCode'] as String? ?? d.locationCode,
+      pairId: j['pairId'] as String? ?? d.pairId,
+      callRole: j['callRole'] as String? ?? d.callRole,
     );
   }
 }
@@ -244,6 +253,7 @@ class AppState extends ChangeNotifier {
   DateTime? _sessionStart;
   Map<String, int>? _sessionOffsets;
   TestProfile _sessionProfile = TestProfile.manual;
+  double? clockOffsetMs; // phone clock minus network time at session start (ms); null = not measured
   Timer? _emailTimer;
   Settings settings = Settings();
 
@@ -1860,6 +1870,7 @@ class AppState extends ChangeNotifier {
       modelLabel(device),
       buildLabel(device).toLowerCase(),
       profileWord,
+      if (settings.pairId.trim().isNotEmpty || settings.callRole.isNotEmpty) '${settings.pairId.trim()}${settings.callRole}',
       locationLabel,
       imei,
       stamp,
@@ -1886,6 +1897,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> _beginSession(TestProfile p) async {
     await BackgroundKeeper.start(); // Video Call Analytics: foreground service, no-op in the other builds
+    clockOffsetMs = null;
+    unawaited(ntpOffsetMs().then((v) => clockOffsetMs = v));
     _sessionStart = DateTime.now();
     _sessionProfile = p;
     _activeServer = null;
@@ -1936,6 +1949,7 @@ class AppState extends ChangeNotifier {
       ..writeln('Site:     ${activeSite == null ? '-' : '${activeSite!.id} ${activeSite!.name}'}')
       ..writeln('Server:   ${settings.host}:${settings.port}')
       ..writeln('Latency:  ${latencyLabel ?? 'off'}')
+      ..writeln('Pair:     ${settings.pairId.trim().isEmpty ? '-' : settings.pairId.trim()}  Role: ${settings.callRole.isEmpty ? '-' : settings.callRole}  Phone clock vs network time: ${clockOffsetMs == null ? 'not measured' : '${clockOffsetMs!.toStringAsFixed(0)} ms (positive = phone ahead)'}')
       ..writeln()
       ..writeln('Tests (${tests.length}${tests.length >= 50 ? ', last 50 shown' : ''}):');
     for (final r in tests) {
