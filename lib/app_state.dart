@@ -25,6 +25,7 @@ import 'services/logcat_recorder.dart';
 import 'services/stall_monitor.dart';
 import 'services/wifi_join_tracker.dart';
 import 'services/session_mailer.dart';
+import 'services/pptx_writer.dart';
 import 'services/screen_recorder.dart';
 
 class Settings {
@@ -822,6 +823,58 @@ class AppState extends ChangeNotifier {
     final f = File('${store.directory.path}/dsds_summary_session.csv');
     await f.writeAsString(b.toString());
     return SheetSource('Transition performance', f.path);
+  }
+
+  /// Hand-In / Hand-Out tables (switch time, user-plane interruption) as CSV sheets for the workbook.
+  Future<List<SheetSource>> _transitionSheets() async {
+    if (!Platform.isAndroid) return [];
+    if (!dsds.sessionEvents.any((e) => e.event == 'SIM switch')) return [];
+    String q(Object? v) {
+      final s = v?.toString() ?? '';
+      return RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
+    }
+
+    final defs = <String, double? Function(DsdsEvent)>{
+      'Transition table': (e) => (e.gapSeconds as num?)?.toDouble(),
+      'User-plane interruption': (e) => dsds.upInterruption(e, sessionGaps),
+    };
+    final out = <SheetSource>[];
+    for (final d in defs.entries) {
+      final t = dsds.transitionTable(d.value);
+      final b = StringBuffer();
+      for (final r in t) {
+        b.writeln(r.map(q).join(','));
+      }
+      final f = File('${store.directory.path}/${d.key.replaceAll(' ', '_').toLowerCase()}_session.csv');
+      await f.writeAsString(b.toString());
+      out.add(SheetSource(d.key, f.path));
+    }
+    return out;
+  }
+
+  /// Tables-only PowerPoint of the same two tables, emailed with the workbook.
+  Future<File?> _transitionDeck(String prefix, DateTime start, DateTime end) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final sw = dsds.transitionTable((e) => (e.gapSeconds as num?)?.toDouble());
+      if (sw.length < 2 || sw[1].skip(1).every((c) => c.isEmpty || c == '0')) return null;
+      final up = dsds.transitionTable((e) => dsds.upInterruption(e, sessionGaps));
+      final env = labFor(_sessionProfile) ? 'Lab' : 'Field';
+      final f = File('${store.directory.path}/${prefix}_transitions.pptx');
+      await writePptx([
+        PptxSlide('Dual SIM transitions', subtitle: '$env  |  ${device['make'] ?? ''} ${device['model'] ?? ''}', lines: [
+          'Start: ${_local(start)}',
+          'End: ${_local(end)}',
+          'Profile: ${_sessionProfile.label}',
+        ]),
+        PptxSlide('Transition table', subtitle: 'Switch time, seconds', table: sw),
+        PptxSlide('User-plane interruption',
+            subtitle: 'Seconds of traffic gap around each switch (gaps over 30 s ignored)', table: up),
+      ], f.path);
+      return f;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ------------------------------------------------------------------ Spectrum Wi-Fi joins
@@ -1911,6 +1964,8 @@ class AppState extends ChangeNotifier {
     }
     final dsdsSheet = await _dsdsSummarySheet(end);
     final joinSheet = await _wifiJoinSummarySheet(end);
+    final tableSheets = await _transitionSheets();
+    final deck = await _transitionDeck(prefix, start, end);
     if (Platform.isAndroid && settings.spectrumWifi) {
       final vs = wifiJoin.visitsForSummary();
       final joined = vs.where((v) => v.timeToConnect != null).map((v) => v.timeToConnect!).toList()..sort();
@@ -1920,6 +1975,9 @@ class AppState extends ChangeNotifier {
           'sheets Wi-Fi scans, Spectrum Wi-Fi visits, Wi-Fi join performance.');
       if (wifiJoin.visit != null) _writeVisit(wifiJoin.visit!, end, open: true);
       await store.flush();
+    }
+    if (deck != null) {
+      b.writeln('Also attached: ${deck.uri.pathSegments.last}, the Transition table and User-plane interruption tables as slides (sheets of the same names in the workbook).');
     }
     final dsdsCounts = <String, int>{};
     for (final e in dsds.sessionEvents) {
@@ -1939,11 +1997,16 @@ class AppState extends ChangeNotifier {
         filePrefix: prefix,
         subject: '$kAppName: $prefix',
         body: b.toString(),
-        extraFiles: [...logcatFiles, ..._exitFiles],
-        extraSheets: [if (dsdsSheet != null) dsdsSheet, if (joinSheet != null) joinSheet],
+        extraFiles: [...logcatFiles, ..._exitFiles, if (deck != null) deck],
+        extraSheets: [if (dsdsSheet != null) dsdsSheet, if (joinSheet != null) joinSheet, ...tableSheets],
       );
       if (queued) {
         _exitFiles.clear(); // ANR traces went out with this session
+        if (deck != null) {
+          try {
+            await deck.delete(); // the copy is in the run folder and the outbox
+          } catch (_) {}
+        }
         // logcat's session_info.txt belongs with the run too.
         final info = File('${logcat.sessionDir?.path ?? ''}/session_info.txt');
         if (logcatFiles.isNotEmpty && await info.exists()) await info.copy('${runDir.path}/logcat_session_info.txt');
