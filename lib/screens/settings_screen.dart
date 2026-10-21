@@ -383,6 +383,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Lab only for the Lab profile; everything else is Field.',
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
+          Text('Environment in file names', style: Theme.of(context).textTheme.bodyMedium),
+          Text('Auto = Lab only for the Lab profile. Choose Lab for runs in a lab or RF chamber with any profile.',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'auto', label: Text('Auto')),
+              ButtonSegment(value: 'field', label: Text('Field')),
+              ButtonSegment(value: 'lab', label: Text('Lab')),
+            ],
+            selected: {_env},
+            onSelectionChanged: (v) {
+              setState(() => _env = v.first);
+              _scheduleAutoSave();
+            },
+          ),
+          const SizedBox(height: 8),
           TextFormField(
             controller: _locCode,
             decoration: const InputDecoration(
