@@ -17,6 +17,8 @@ class PublicServer {
 /// US public iperf3 servers, nearest to Denver first (Dallas, Chicago,
 /// Atlanta, Boston). When a test can't start on one, the app moves to the next.
 const publicServers = <PublicServer>[
+  PublicServer('Server 1 54.90.236.69', '54.90.236.69', 24101, 24101, udp: true),
+  PublicServer('Server 2 3.125.95.89', '3.125.95.89', 24101, 24101, udp: true),
   PublicServer('Clouvider Dallas', 'dal.speedtest.clouvider.net', 5200, 5209, udp: true, ipv6: true),
   PublicServer('Leaseweb Dallas', 'speedtest.dal13.us.leaseweb.net', 5201, 5210, ipv6: true),
   PublicServer('IS.CC Dallas', 'dfw.speedtest.is.cc', 5203, 5210),
