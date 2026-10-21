@@ -26,7 +26,9 @@ Future<void> shareRun(BuildContext buttonContext, Directory dir) async {
       ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       : f.path.endsWith('.gz')
           ? 'application/gzip'
-          : 'text/plain';
+          : f.path.endsWith('.mp4')
+              ? 'video/mp4'
+              : 'text/plain';
   final box = buttonContext.findRenderObject() as RenderBox?;
   await SharePlus.instance.share(ShareParams(
     files: files.map((f) => XFile(f.path, mimeType: mime(f))).toList(),
