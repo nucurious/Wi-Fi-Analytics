@@ -37,6 +37,16 @@ class DsdsState {
   bool get known => slot != null || hasIp;
   String get label => slot == null ? 'no data SIM' : 'SIM$slot $carrier';
   bool get isHmno => plmn == '314020' || DsdsEvent.owner(ipv4, ipv6).startsWith('Spectrum HMNO');
+
+  /// Name of a data-SIM PLMN for the screen and reports.
+  static String plmnName(String p) => switch (p) {
+        '314020' => 'HMNO 314 020',
+        '311480' => 'Spectrum Mobile (Verizon) 311 480',
+        _ => p,
+      };
+
+  /// Default data subscription (DDS): the SIM carrying mobile data and its PLMN.
+  String get dds => slot == null ? 'no data SIM' : 'SIM$slot ${plmn.isEmpty ? carrier : plmnName(plmn)}';
 }
 
 class DsdsEvent {
