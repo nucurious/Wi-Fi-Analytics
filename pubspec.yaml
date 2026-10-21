@@ -1,7 +1,7 @@
 name: wifi_analytics
 description: WiFi Analytics - field network testing (iperf3 UDP/TCP, GPS, site, radio info).
 publish_to: none
-version: 1.3.8+21
+version: 1.3.9+22
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -19,6 +19,8 @@ dependencies:
   wakelock_plus: ">=1.2.0 <1.8.1"   # 1.8.1+ conflicts with geolocator (dbus)
   radio_info:
     path: packages/radio_info
+  screen_record:
+    path: packages/screen_record
 
 dev_dependencies:
   flutter_test:
