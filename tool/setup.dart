@@ -75,6 +75,27 @@ void _patchAndroidManifest() {
     xml = xml.replaceRange(m.end, m.end,
         '\n    <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />');
   }
+  if (Platform.environment['VIDEO_CALL'] == 'true') {
+    // Video Call Analytics: foreground service so logging continues while a call app is on screen.
+    const fg = [
+      'android.permission.FOREGROUND_SERVICE',
+      'android.permission.FOREGROUND_SERVICE_LOCATION',
+      'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
+      'android.permission.POST_NOTIFICATIONS',
+      'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+      'android.permission.WAKE_LOCK',
+    ];
+    final miss = fg.where((p) => !xml.contains('"$p"')).toList();
+    if (miss.isNotEmpty) {
+      final lines = miss.map((p) => '    <uses-permission android:name="$p" />').join('\n');
+      final m = RegExp(r'<manifest[^>]*>').firstMatch(xml)!;
+      xml = xml.replaceRange(m.end, m.end, '\n$lines');
+    }
+    if (!xml.contains('flutter_foreground_task.service.ForegroundService')) {
+      xml = xml.replaceFirst('</application>',
+          '    <service android:name="com.pravera.flutter_foreground_task.service.ForegroundService" android:foregroundServiceType="location|dataSync" android:exported="false" />\n  </application>');
+    }
+  }
   f.writeAsStringSync(xml);
   stdout.writeln('Patched AndroidManifest.xml${debugApp ? ' (debug app, READ_LOGS)' : ''}');
 }
