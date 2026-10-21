@@ -772,6 +772,8 @@ class AppState extends ChangeNotifier {
           e.to.ipv4,
           e.to.ipv6,
           DsdsEvent.owner(e.to.ipv4, e.to.ipv6),
+          e.from.dds,
+          e.to.dds,
           e.to.sims,
           radio.connection,
           geofence.inHmno == null ? null : (geofence.inHmno! ? 'yes' : 'no'),
