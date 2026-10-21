@@ -60,6 +60,7 @@ class DataStore {
     'time_utc', 'time_local', 'event', 'direction', 'success', 'started_utc', 'switch_time_s', 'time_on_previous_s',
     'from_sim', 'from_carrier', 'from_plmn', 'from_iface', 'from_ipv4', 'from_ipv6', 'from_ip_owner',
     'to_sim', 'to_carrier', 'to_plmn', 'to_iface', 'to_ipv4', 'to_ipv6', 'to_ip_owner',
+    'from_dds', 'to_dds',
     'sims', 'default_connection', 'in_hmno_geofence', 'hmno_area', 'hmno_edge_m',
     'profile', 'test_running', 'test_type', 'site_id',
     ...GpsCsv.header,
