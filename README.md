@@ -15,6 +15,8 @@ A field network-testing app for **iPhone and Android** (one Flutter codebase).
 - **Dual SIM (DSDS)**, Android: data-SIM switches, IP changes and data gaps between the two SIMs (e.g. Spectrum Mobile and Verizon), with the IP owner, plus per-session statistics.
 - **Spectrum Mobile Wi-Fi**, Android: every scan that hears a Spectrum SSID, time from first heard to connected (association, authentication, IP, internet validated), and time connected and sending traffic on it, with per-session statistics.
 - **Debug app** (`Analytics_debug_ver1.0`, Android): everything above plus logcat for every session.
+- **Video Call Analytics** (`Video_Call_Analytics`, Android, branch next-1-5): a foreground service keeps logging while a call app is on screen; Pair ID and Role (Caller / Callee) in Settings > Call pair go into the file name; phone clock vs network time at session start; Record screen for call-quality analysis at HQ.
+- **Analytics-Prov** (`Analytics-Prov1.0`, Android, branch analytics-prov-1-0): everything in Video Call Analytics plus a phone health log every 10 s (battery, temperature, thermal status, memory, GPS age, foreground service, logging gaps) on a Health sheet, in the summary and on a Phone health card.
 
 **To build and install, follow [BUILD_GUIDE.md](BUILD_GUIDE.md).** No developer tools are needed on your computer.
 CSV column definitions are in [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
@@ -39,6 +41,7 @@ CSV column definitions are in [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 | 2.6 | Oct 20, 2026 | 803d6fa | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
+| 2.7 | Oct 22, 2026 | b4478b6 to a874ddc | App 1.3.9 to 1.4.1 (iPerf server order, Record screen, Environment setting, Transition table and User-plane interruption sheets, tables-only PowerPoint, version in the app name), Video Call Analytics 1.5.0 (foreground service, Pair ID and Role, clock check) and Analytics-Prov1.0 (phone health log); features, layout, notes and version tables updated. |
 
 ## App and script versions
 
@@ -62,9 +65,16 @@ CSV column definitions are in [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
 | Analytics_debug_ver1.0 (Android) | 1.0.7 | Oct 20, 2026 | 9270aa1 to fbfbf9a | Same as 1.3.7, plus logcat as before. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.8 | Oct 20, 2026 | 803d6fa (current) | Freeze tracking: Mark freeze button on the Test screen; UI stalls rows carry the app events just before the freeze and, for Android main-thread freezes, where the main thread was stuck (stack captured 0.7 s in); stalls written to disk at once. |
 | Analytics_debug_ver1.0 (Android) | 1.0.8 | Oct 20, 2026 | 803d6fa (current) | Same as 1.3.8, plus logcat as before. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.9 | Oct 21, 2026 | d894b5e to f62988a (branch next-1-3-9) | iPerf servers 54.90.236.69, then 3.125.95.89, then public servers; Walk keeps testing while on Wi-Fi; Record screen button; no restarts from cellular IP changes while on Wi-Fi; DDS on the Test screen. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.4.0 | Oct 21, 2026 | 9c52fc8 (branch next-1-4) | Environment setting (Auto, Field, Lab); retry on a busy server; ping default 8.8.8.8; Transition table and User-plane interruption sheets and a tables-only PowerPoint in the session email. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.4.1 | Oct 22, 2026 | b4478b6 (branch next-1-4; APK build #36) | App name, GUI title and APK file name follow the version (VERSION variable in codemagic.yaml). |
+| Analytics_debug_ver1.0 (Android) | 1.0.9 to 1.1.1 | Oct 21-22, 2026 | branches next-1-3-9, next-1-4 | Same as the main app of the same number, plus logcat as before. |
+| Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Foreground service, Pair ID and Role, phone clock vs network time. |
+| Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0; APK build #1) | Video Call Analytics plus the phone health log (Health sheet). Not yet run on a phone. |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
+| dsds_statistics.py (PC / server) | 1.0 | Oct 22, 2026 | file only | One HQ script: report (Traffic recovery and IP ready tables, Excel and PowerPoint), drive (route maps on a street map, throughput, latency, signal and cell stats, phone health), call-analyze, call-video, reflector, all. Replaces dds_transition_report.py, analyze_call_recording.py, make_call_test_video.py and twamp_reflector.py. |
 
 Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
 
@@ -86,6 +96,11 @@ lib/
   services/logcat_recorder.dart Debug app: logcat per session
   services/geofence_tracker.dart Geofence enter/exit per site
   services/dsds_tracker.dart   Dual-SIM data transitions and session stats
+  services/health_monitor.dart Analytics-Prov: phone health log (Health sheet)
+  services/background_keeper.dart Foreground service for Video Call Analytics / Prov
+  services/ntp_check.dart      Phone clock vs network time (SNTP)
+  services/pptx_writer.dart    Tables-only PowerPoint in the session email
+  screens/health_card.dart     Phone health card (Prov build)
   util/file_naming.dart        Output file names (model names, market codes)
   util/host_address.dart       Server address / port parsing
   screens/                     Test, Sites, Data, Settings screens
@@ -99,4 +114,4 @@ codemagic.yaml                 Cloud builds: Android APK, Android Debug APK (log
 
 - The iperf3 client speaks the iperf3 3.x protocol directly, so no native iperf binary is bundled. Its protocol flow (TCP/UDP, upload/download, parallel stream numbering) was validated against an iperf3 3.16 server.
 - The `android/` and `ios/` folders are generated at build time by `flutter create`, then customised by `tool/setup.dart`.
-- Tests run in the foreground. Mobile operating systems suspend network tests when an app is backgrounded.
+- In the main and debug apps tests run in the foreground. Video Call Analytics and Analytics-Prov use an Android foreground service (notification shown) so logging continues with another app on screen.
