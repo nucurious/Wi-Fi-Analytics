@@ -238,6 +238,16 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
                 });
                 break;
             }
+            case "getHealth":
+                dataWorker.execute(() -> {
+                    Map<String, Object> h = new HashMap<>();
+                    try {
+                        putHealth(h);
+                    } catch (Exception ignored) {
+                    }
+                    mainHandler.post(() -> result.success(h));
+                });
+                break;
             case "getMainThreadLag":
                 result.success(maxMainLagMs.getAndSet(0));
                 break;
@@ -252,6 +262,58 @@ public class RadioInfoPlugin implements FlutterPlugin, MethodChannel.MethodCallH
                 break;
             default:
                 result.notImplemented();
+        }
+    }
+
+    /**
+     * Analytics-Prov health log: battery (level, charging, temperature), thermal status, memory (phone and app),
+     * power saving / Doze / battery optimisation, screen state. Read every 10 s by the app.
+     */
+    @SuppressLint("MissingPermission")
+    private void putHealth(Map<String, Object> h) {
+        try {
+            Intent b = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (b != null) {
+                int level = b.getIntExtra("level", -1);
+                int scale = b.getIntExtra("scale", 100);
+                if (level >= 0 && scale > 0) h.put("batteryPct", level * 100.0 / scale);
+                h.put("batteryStatus", b.getIntExtra("status", -1)); // 2 charging, 3 discharging, 4 not charging, 5 full
+                h.put("plugged", b.getIntExtra("plugged", 0));       // 1 AC, 2 USB, 4 wireless
+                int t = b.getIntExtra("temperature", Integer.MIN_VALUE);
+                if (t != Integer.MIN_VALUE) h.put("batteryTempC", t / 10.0);
+                int mv = b.getIntExtra("voltage", -1);
+                if (mv > 0) h.put("batteryMv", mv);
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                if (Build.VERSION.SDK_INT >= 29) h.put("thermalStatus", pm.getCurrentThermalStatus()); // 0 none .. 6 shutdown
+                h.put("powerSave", pm.isPowerSaveMode());
+                h.put("screenOn", pm.isInteractive());
+                if (Build.VERSION.SDK_INT >= 23) {
+                    h.put("doze", pm.isDeviceIdleMode());
+                    h.put("ignoringBatteryOpt", pm.isIgnoringBatteryOptimizations(context.getPackageName()));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+                am.getMemoryInfo(mi);
+                h.put("availMemMb", mi.availMem / 1048576.0);
+                h.put("totalMemMb", mi.totalMem / 1048576.0);
+                h.put("lowMemory", mi.lowMemory);
+            }
+            android.os.Debug.MemoryInfo dm = new android.os.Debug.MemoryInfo();
+            android.os.Debug.getMemoryInfo(dm);
+            h.put("appPssMb", dm.getTotalPss() / 1024.0);
+            Runtime rt = Runtime.getRuntime();
+            h.put("heapMb", (rt.totalMemory() - rt.freeMemory()) / 1048576.0);
+        } catch (Exception ignored) {
         }
     }
 
