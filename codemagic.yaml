@@ -90,6 +90,36 @@ workflows:
     artifacts:
       - build/app/outputs/flutter-apk/Video_Call_Analytics_v*.apk
 
+  # ---------------------------------------------------------------- Analytics-Prov (Android)
+  # The heavier field version: everything in Video Call Analytics (foreground service keeps logging with the
+  # screen off or another app in front) plus a phone health log (battery, thermal, memory, GPS and logging gaps).
+  # Own application ID, installs next to the other apps.
+  analytics-prov-apk:
+    name: Analytics-Prov (Android)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        BUNDLE_ID: com.example.analyticsprov
+        VERSION: "1.0"
+        PROV: "true"
+        VIDEO_CALL: "true"
+    scripts:
+      - name: Generate platform folders
+        script: flutter create --no-pub --org com.wifianalytics --project-name wifi_analytics --platforms=android .
+      - name: Get packages
+        script: flutter pub get
+      - name: Apply app settings
+        script: APP_NAME=Analytics-Prov$VERSION dart run tool/setup.dart
+      - name: Build APK
+        script: |
+          flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER \
+            --dart-define=PROV=true --dart-define=VIDEO_CALL=true --dart-define=APP_NAME=Analytics-Prov$VERSION
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Analytics-Prov$VERSION.apk
+    artifacts:
+      - build/app/outputs/flutter-apk/Analytics-Prov*.apk
+
   # ---------------------------------------------------------------- iPhone -> TestFlight
   ios-testflight:
     name: iPhone TestFlight
