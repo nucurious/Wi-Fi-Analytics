@@ -14,6 +14,7 @@ workflows:
       flutter: stable
       vars:
         BUNDLE_ID: com.example.wifianalytics   # CHANGE-ME (same as below)
+        VERSION: 1.5.0
     scripts:
       - name: Show Flutter version
         script: flutter --version
@@ -22,11 +23,10 @@ workflows:
       - name: Get packages
         script: flutter pub get
       - name: Apply WiFi Analytics settings
-        script: dart run tool/setup.dart
+        script: APP_NAME=Wi-Fi_Analytics_v$VERSION dart run tool/setup.dart
       - name: Build APK
         script: |
-          VERSION=1.4.0
-          flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER
+          flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER --dart-define=APP_NAME=Wi-Fi_Analytics_v$VERSION
           # File name carries the version (e.g. Wi-Fi_Analytics_v1.3.7.apk) so downloads can't be mixed up.
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Wi-Fi_Analytics_v$VERSION.apk
     artifacts:
@@ -44,7 +44,7 @@ workflows:
       flutter: stable
       vars:
         BUNDLE_ID: com.example.analyticsdebug
-        APP_NAME: Analytics_debug_ver1.0
+        VERSION: 1.2.0
         DEBUG_APP: "true"
     scripts:
       - name: Generate platform folders
@@ -52,12 +52,11 @@ workflows:
       - name: Get packages
         script: flutter pub get
       - name: Apply debug app settings
-        script: dart run tool/setup.dart
+        script: APP_NAME=Analytics_debug_ver$VERSION dart run tool/setup.dart
       - name: Build APK
         script: |
-          VERSION=1.1.0
           flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER \
-            --dart-define=DEBUG_APP=true --dart-define=APP_NAME=Analytics_debug_ver1.0
+            --dart-define=DEBUG_APP=true --dart-define=APP_NAME=Analytics_debug_ver$VERSION
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Analytics_debug_ver$VERSION.apk
     artifacts:
       - build/app/outputs/flutter-apk/Analytics_debug_ver*.apk
@@ -109,6 +108,7 @@ workflows:
         bundle_identifier: com.example.wifianalytics   # CHANGE-ME
       vars:
         BUNDLE_ID: com.example.wifianalytics           # CHANGE-ME (same as above)
+        VERSION: 1.5.0
     scripts:
       - name: Show Flutter version
         script: flutter --version
@@ -117,7 +117,7 @@ workflows:
       - name: Get packages
         script: flutter pub get
       - name: Apply WiFi Analytics settings
-        script: dart run tool/setup.dart
+        script: APP_NAME=Wi-Fi_Analytics_v$VERSION dart run tool/setup.dart
       - name: Install CocoaPods
         script: cd ios && pod install --repo-update
       - name: Set up code signing
@@ -125,7 +125,7 @@ workflows:
       - name: Build IPA
         script: |
           flutter build ipa --release \
-            --build-name=1.4.0 \
+            --build-name=$VERSION \
             --build-number=$BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
