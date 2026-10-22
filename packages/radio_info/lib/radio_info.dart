@@ -67,6 +67,16 @@ class RadioInfo {
     }
   }
 
+  /// Android: battery, thermal status, memory, power saving / Doze (Analytics-Prov health log).
+  static Future<Map<String, dynamic>> health() async {
+    try {
+      final m = await _channel.invokeMapMethod<String, dynamic>('getHealth');
+      return m ?? <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   /// Android: asks for READ_PHONE_STATE (needed for network type / 5G NSA).
   static Future<bool> requestPhonePermission() async {
     try {
