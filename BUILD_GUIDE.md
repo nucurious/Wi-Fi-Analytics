@@ -37,6 +37,8 @@ Plan on about an hour the first time. After that, a new build is one click.
   - [Tracking freezes](#tracking-freezes)
 - [Alternative: building on your own computer](#alternative-building-on-your-own-computer)
 - [Debug app: Analytics_debug_ver1.0 (records logcat)](#debug-app-analytics_debug_ver10-records-logcat)
+- [Video Call Analytics and Analytics-Prov (Android)](#video-call-analytics-and-analytics-prov-android)
+- [HQ reports: dsds_statistics.py](#hq-reports-dsds_statisticspy)
 
 ## Document versions
 
@@ -54,6 +56,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 | 2.6 | Oct 20, 2026 | 803d6fa | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
+| 2.7 | Oct 22, 2026 | b4478b6 to a874ddc | App 1.3.9 to 1.4.1, Video Call Analytics 1.5.0 and Analytics-Prov1.0 (new Codemagic workflows and setup), HQ reports (dsds_statistics.py: transitions, drive route report, call quality). |
 
 ## App and script versions
 
@@ -77,9 +80,15 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Analytics_debug_ver1.0 (Android) | 1.0.7 | Oct 20, 2026 | 9270aa1 to fbfbf9a | Same as 1.3.7, plus logcat as before. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.8 | Oct 20, 2026 | 803d6fa (current) | Freeze tracking: Mark freeze button on the Test screen; UI stalls rows carry the app events just before the freeze and, for Android main-thread freezes, where the main thread was stuck (stack captured 0.7 s in); stalls written to disk at once. |
 | Analytics_debug_ver1.0 (Android) | 1.0.8 | Oct 20, 2026 | 803d6fa (current) | Same as 1.3.8, plus logcat as before. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.9 | Oct 21, 2026 | d894b5e to f62988a (branch next-1-3-9) | iPerf servers 54.90.236.69, then 3.125.95.89, then public servers; Walk keeps testing while on Wi-Fi; Record screen; DDS on the Test screen. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.4.0 | Oct 21, 2026 | 9c52fc8 (branch next-1-4) | Environment setting; Transition table and User-plane interruption sheets and a tables-only PowerPoint in the session email. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.4.1 | Oct 22, 2026 | b4478b6 (branch next-1-4; APK build #36) | App name and APK file name follow the version. |
+| Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Foreground service, Pair ID and Role, phone clock vs network time. |
+| Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0; APK build #1) | Video Call Analytics plus the phone health log. Not yet run on a phone. |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
+| dsds_statistics.py (PC / server) | 1.0 | Oct 22, 2026 | file only | HQ reports: transitions, drive route report, call quality, TWAMP reflector, test video. |
 
 Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
 
@@ -120,7 +129,7 @@ Check: the repository's main page should show `codemagic.yaml`, `pubspec.yaml`, 
 ## Step 3: Build the Android app
 
 1. In Codemagic, open the app and click **Start new build**.
-2. Choose the workflow **Android APK** (or **Android Debug APK (logcat)** for the debug app) and click **Start new build**.
+2. Choose the workflow **Android APK** (or **Android Debug APK (logcat)** for the debug app; **Video Call Analytics (Android)** on branch next-1-5; **Analytics-Prov (Android)** on branch analytics-prov-1-0) and click **Start new build**.
 3. Wait about 15 minutes for a green ✅.
 4. Under **Artifacts**, download `Wi-Fi_Analytics_v<version>.apk`, e.g. `Wi-Fi_Analytics_v1.3.7.apk` (debug app: `Analytics_debug_ver<version>.apk`, e.g. `Analytics_debug_ver1.0.7.apk`; from 1.3.7 the version is in the file name). Both can be installed on the same phone.
 
@@ -360,3 +369,38 @@ everything it does, plus records logcat during every test session.
 
    `session_info.txt` in each folder gives the start time in UTC and the phone's time zone
    (`-v time` stamps are phone local time, without the year).
+
+
+## Video Call Analytics and Analytics-Prov (Android)
+
+Two more Android apps built from the same code, each its own install next to the others:
+
+| | Video Call Analytics | Analytics-Prov |
+|---|---|---|
+| Branch / Codemagic workflow | next-1-5 / Video Call Analytics (Android) | analytics-prov-1-0 / Analytics-Prov (Android) |
+| Application ID | com.example.videocallanalytics | com.example.analyticsprov |
+| APK | Video_Call_Analytics_v1.5.0.apk | Analytics-Prov1.0.apk (about 53 MB, about 6 minutes to build) |
+| Extra over the main app | Foreground service, Pair ID and Role, phone clock check | Everything in Video Call Analytics plus the phone health log |
+
+**First run:** allow Notifications and the battery-optimisation prompt (the foreground service keeps logging with another app on screen; a notification shows while a session runs). Log in to the call app (WhatsApp, Teams, Webex, Meet) by hand on each phone. In **Settings > Call pair** set the same Pair ID on both phones (P1, P2 ...) and a Role (Caller / Callee); both go into the file name and the summary. The summary also states how far the phone clock is from network time (positive = phone ahead).
+
+**Call quality test:** the far-end phone plays the test video from `dsds_statistics.py call-video` (screen-shared in the call); the near-end phone taps **Record screen** on the Test screen; at HQ run `dsds_statistics.py call-analyze` on the recording.
+
+**Analytics-Prov health log:** every 10 s the Health sheet gets battery level, charging, battery temperature, thermal status, battery saver and Doze, phone and app memory, seconds since the last GPS fix, foreground service state and logging gaps. The Test screen shows a Phone health card; summary.txt gets Health and Health flags lines. Columns: DATA_DICTIONARY.md.
+
+## HQ reports: dsds_statistics.py
+
+One Python file for the PC (needs Python 3 with pandas, openpyxl, python-pptx, matplotlib, numpy; opencv-python and ffmpeg for the call commands; optional contextily). Run it with no arguments for a menu and file pickers, or:
+
+```
+python dsds_statistics.py report <session workbook.xlsx>      # transitions: Excel + PowerPoint
+python dsds_statistics.py drive  <session workbook.xlsx>      # route report: Excel + PowerPoint + HTML map
+python dsds_statistics.py call-analyze <ScreenRec.mp4>        # video call quality
+python dsds_statistics.py call-video                          # test video for the far-end phone
+python dsds_statistics.py reflector --port 24862              # TWAMP-Light reflector for a server
+```
+
+Use the original session workbook (`Field_...xlsx`), not a file the script wrote. Results go to `dsds_statistics_output` next to the input.
+
+- **report:** leads with **Traffic recovery** (time until traffic flowed again: UDP packet gap, else lost probes, else the test restart; 0 s when UDP kept running with no gap over 0.3 s), then **IP ready** (old data path ending to the IP on the new SIM; network attach, not what the user sees). Switches with no traffic near them are not measured and the slide says how many. Also larger gaps over 30 s, device and run details and charts.
+- **drive:** trip summary, route maps on a street map (coloured by signal and by throughput, SIM switches marked), throughput and latency by RAT and SIM, signal and cell stats, and phone health when the workbook has a Health sheet. The street map needs internet (Esri and CARTO tiles; OpenStreetMap blocks pages opened as local files); with no internet it draws a plain grid. For drives set **UDP duration to 0**: a fixed-length UDP test restarts on every IP change.
