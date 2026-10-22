@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../app_config.dart';
 import '../app_state.dart';
+import 'health_card.dart';
 import 'share_run.dart';
 import '../models.dart';
 import '../services/screen_recorder.dart';
@@ -46,6 +47,7 @@ class _TestScreenState extends State<TestScreen> {
               _Banner(icon: Icons.error_outline, text: s.lastError!, error: true),
             _StatusCard(state: s),
             const SizedBox(height: 12),
+            if (kProv) ...[HealthCard(state: s), const SizedBox(height: 12)],
             _LiveCard(state: s),
             const SizedBox(height: 12),
             _controls(context, s),
