@@ -17,8 +17,9 @@ All files are UTF-8 CSV with a header row. Blank cells mean the value wasn't ava
 | `spectrum_wifi_visits.csv` | Visit to Spectrum Mobile Wi-Fi: first heard, time to connect (with each join step), time connected and sending traffic (Android) |
 | `wifi_scans.csv` | Wi-Fi scan that heard a Spectrum SSID (Android) |
 | `wifi_states.csv` | Wi-Fi connection step reported by Android (Android) |
+| `health_session.csv` | Phone health sample every 10 s, this session only: the Health sheet in the session email (Analytics-Prov build, Android) |
 
-The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Traffic gaps, UI stalls, Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Sites; the session email also has Transition performance and Wi-Fi join performance sheets (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
+The emailed workbook (and Data → Export Excel workbook) has one sheet per file: Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence, DSDS transitions, Traffic gaps, UI stalls, Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Health (Analytics-Prov build), Sites; the session email also has Transition performance and Wi-Fi join performance sheets (Android). File names: `Field|Lab_Make_Model_build_profile_location_IMEI_date-time.xlsx` (see BUILD_GUIDE.md, Emailing results).
 
 Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 
@@ -44,6 +45,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 - [wifi_scans.csv (sheet "Wi-Fi scans", Android)](#wifi_scanscsv-sheet-wi-fi-scans-android)
 - [wifi_states.csv (sheet "Wi-Fi connection steps", Android)](#wifi_statescsv-sheet-wi-fi-connection-steps-android)
 - [Wi-Fi join performance (sheet in the session email, Android)](#wi-fi-join-performance-sheet-in-the-session-email-android)
+- [health.csv (sheet "Health", Analytics-Prov build)](#healthcsv-sheet-health-analytics-prov-build)
 
 ## Document versions
 
@@ -59,6 +61,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 2.4 | Oct 20, 2026 | 357ba31 | App 1.3.3 to 1.3.6 / debug 1.0.3 to 1.0.6: fast Stop, run folders, settings auto-save, continuous UDP down + up, restart on data-SIM switch, Traffic gaps and user-plane interruption (IP level, higher than PDCP), public servers only. |
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 | 2.6 | Oct 20, 2026 | 803d6fa | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
+| 2.7 | Oct 22, 2026 | b4478b6 to a874ddc | App 1.3.9 to 1.4.1, Video Call Analytics 1.5.0 (Pair ID and Role in the file name) and Analytics-Prov1.0: new Health sheet (health.csv). Traffic recovery vs IP ready explained (Transition performance, switch_time_s, Traffic gaps). |
 
 ## App and script versions
 
@@ -82,9 +85,15 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | Analytics_debug_ver1.0 (Android) | 1.0.7 | Oct 20, 2026 | 9270aa1 to fbfbf9a | Same as 1.3.7, plus logcat as before. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.3.8 | Oct 20, 2026 | 803d6fa (current) | Freeze tracking: Mark freeze button on the Test screen; UI stalls rows carry the app events just before the freeze and, for Android main-thread freezes, where the main thread was stuck (stack captured 0.7 s in); stalls written to disk at once. |
 | Analytics_debug_ver1.0 (Android) | 1.0.8 | Oct 20, 2026 | 803d6fa (current) | Same as 1.3.8, plus logcat as before. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.3.9 | Oct 21, 2026 | d894b5e to f62988a (branch next-1-3-9) | iPerf servers 54.90.236.69, then 3.125.95.89, then public servers; Walk keeps testing while on Wi-Fi; Record screen; cellular IP logged on Wi-Fi rows; DDS (from_dds, to_dds) in the DSDS sheets. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.4.0 | Oct 21, 2026 | 9c52fc8 (branch next-1-4) | Environment setting; Transition table and User-plane interruption sheets in the session email. |
+| Wi-Fi_Analytics_v1.3 (Android) | 1.4.1 | Oct 22, 2026 | b4478b6 (branch next-1-4) | App name follows the version. |
+| Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Pair ID and Role in the file name and summary; phone clock vs network time. |
+| Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0) | Health sheet (health.csv). |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
+| dsds_statistics.py (PC / server) | 1.0 | Oct 22, 2026 | file only | HQ reports: transitions (Traffic recovery first, IP ready second), drive route report, call quality, TWAMP reflector. |
 
 Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
 
@@ -257,7 +266,7 @@ The data SIM and cellular IPs are read every second.
 | direction | Hand In (onto the Spectrum HMNO subscription: PLMN 314020 or HMNO IP), Hand Out (off it), Other; blank for non-switch events |
 | success | yes / no for switches |
 | started_utc | When the previous data path ended, or the data SIM changed if earlier |
-| switch_time_s | From started_utc to the IP on the new SIM (blank for failed). Read 4 times a second (about 0.25 s resolution) |
+| switch_time_s | From started_utc to the IP on the new SIM (blank for failed). Read 4 times a second (about 0.25 s resolution). IP-based (network attach), not traffic recovery: the traffic side is in Traffic gaps and the user-plane interruption rows. |
 | time_on_previous_s | Time on the previous SIM / address |
 | from_sim, from_carrier, from_plmn, from_iface, from_ipv4, from_ipv6 | Before |
 | to_sim, to_carrier, to_plmn, to_iface, to_ipv4, to_ipv6 | After |
@@ -279,6 +288,8 @@ Same layout as the Transition Performance report, for this session:
 | Mean (s), Median (s), Min (s), Max (s), Std Dev (s) | switch_time_s of the successful switches (sample std dev) | … |
 
 Below the switch-time rows, **User-plane interruption (from traffic)**: for each successful switch, the longest traffic gap overlapping [switch start − 3 s, switch + 10 s] (UDP download packet gaps preferred, at ms precision; else lost TWAMP/ping probes at 0.1 / 0.2 s), with Switches with a traffic gap, UP Mean, Median, Min, Max, Std Dev. Run a continuous UDP stream (duration 0, Lab or Drive profile) during switches for the best numbers. An **Other** column appears if neither SIM was HMNO. Below: counts of IP changes, interruptions and losses, and the session length.
+
+**Traffic recovery vs IP ready.** The switch-time rows above are based on the IP (old data path ending to the IP on the new SIM). The user-plane interruption rows are based on the traffic recovering. The HQ report (dsds_statistics.py report) leads with traffic recovery: UDP packet gap first, else lost probes, else the test restart, and 0 s when a UDP test kept running with no gap over 0.3 s; switches with no traffic near them are not measured, and the report says how many were.
 
 ## ui_stalls.csv (sheet "UI stalls")
 
@@ -307,7 +318,7 @@ User-plane interruptions measured from the traffic itself.
 | Column | Meaning |
 |---|---|
 | start_utc, end_utc, start_local, duration_s | The gap (ms precision for UDP download packets) |
-| source | UDP download packets (gap > 0.3 s between received packets; in continuous runs also from the last packet before a restart to the first after it), TWAMP lost / Ping lost (2+ probes lost in a row: from the first lost send to the next answered send), Test restart (network change detected -> first packet of the restarted test: the part of a gap caused by the app reconnecting; not counted in the user-plane interruption statistics) |
+| source | UDP download packets (gap > 0.3 s between received packets; in continuous runs also from the last packet before a restart to the first after it), TWAMP lost / Ping lost (2+ probes lost in a row: from the first lost send to the next answered send), Test restart (network change detected -> first packet of the restarted test: the part of a gap caused by the app reconnecting; not counted in the app's user-plane interruption statistics; the HQ report uses it as a last resort when no UDP or probe gap is found) |
 | test_type, profile | What was running |
 | data_sim_slot, data_plmn, cell_ipv6, cell_ipv4, connection, rat, in_hmno_geofence | Network when the gap was logged (after it ended) |
 | latitude, longitude, speed_kmh | Position |
@@ -382,3 +393,24 @@ Every Wi-Fi connection step Android reports, for any SSID, to check a visit's ti
 ## Wi-Fi join performance (sheet in the session email, Android)
 
 Per session: scans and scans that heard Spectrum; visits, joined, already connected at start, heard but not joined, failed attempts; then Count, Mean, Median, Min, Max, Std Dev (s) for time to connect (first heard → connected), first heard → join start, association + authentication, IP (DHCP), connected → internet validated, scans before connect, time connected per visit and time sending traffic per visit; then totals: time connected to Spectrum Wi-Fi, time sending traffic over it and its share, MB down and up, average Mbps while sending.
+
+
+## health_session.csv (sheet "Health", Analytics-Prov build)
+
+Written for the session email only (not in the Data-tab export). One row every 10 s while a session runs (Android, Analytics-Prov1.0 and later), to see why a run went wrong: a hot or low phone, a paused app, lost GPS.
+
+| Column | Meaning |
+|---|---|
+| time_utc, time_local | Sample time |
+| since_last_s | Seconds since the previous sample (about 10) |
+| battery_pct, charging, plugged | Battery level, charging / discharging / full, AC / USB / wireless |
+| battery_temp_c, battery_mv | Battery temperature and voltage |
+| thermal | Android thermal status: None, Light, Moderate, Severe, Critical, Emergency, Shutdown (Moderate and above = throttling) |
+| power_save, doze, screen_on, battery_opt_ignored | Battery saver, Doze (idle mode), screen on, app exempt from battery optimisation (yes / no) |
+| phone_free_mem_mb, low_memory | Free memory on the phone; yes when Android reports low memory |
+| app_pss_mb, app_heap_mb | The app's memory (PSS) and Dart / Java heap |
+| gps_age_s | Seconds since the last GPS fix (over 10 = GPS lost) |
+| service_running | Foreground service up (yes / NO; blank in builds without it) |
+| logging_gap | yes when this sample came more than 25 s after the previous one: the app was paused or the phone froze |
+
+summary.txt also gets a Health line (battery start and end, max temperature, worst thermal status, minimum free memory, maximum app memory) and a Health flags line (throttling, logging gaps, GPS lost, service down, low memory, battery saver, Doze).
