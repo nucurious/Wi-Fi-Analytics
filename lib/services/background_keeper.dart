@@ -48,4 +48,14 @@ class BackgroundKeeper {
       if (await FlutterForegroundTask.isRunningService) await FlutterForegroundTask.stopService();
     } catch (_) {}
   }
+
+  /// null = this build has no service; otherwise whether the foreground service is running (used by the health log).
+  static Future<bool?> running() async {
+    if (!kVideoCall || !Platform.isAndroid) return null;
+    try {
+      return await FlutterForegroundTask.isRunningService;
+    } catch (_) {
+      return null;
+    }
+  }
 }
