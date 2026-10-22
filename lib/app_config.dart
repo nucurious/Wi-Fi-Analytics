@@ -4,3 +4,6 @@
 /// Debug app: Analytics_debug_ver1.0 (separate install, also records logcat)
 const bool kDebugApp = bool.fromEnvironment('DEBUG_APP');
 const String kAppName = String.fromEnvironment('APP_NAME', defaultValue: 'Wi-Fi_Analytics_v1.3');
+
+/// Analytics-Prov build: phone health sampling (battery, thermal, memory, GPS and logging gaps).
+const bool kProv = bool.fromEnvironment('PROV');
