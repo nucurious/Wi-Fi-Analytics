@@ -27,6 +27,7 @@ import 'services/wifi_join_tracker.dart';
 import 'services/session_mailer.dart';
 import 'services/pptx_writer.dart';
 import 'services/background_keeper.dart';
+import 'services/health_monitor.dart';
 import 'services/ntp_check.dart';
 import 'services/screen_recorder.dart';
 
@@ -581,6 +582,9 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------ UI freezes
 
   late final stalls = StallMonitor(_onStall);
+
+  /// Analytics-Prov: phone health log (battery, thermal, memory, GPS and logging gaps).
+  final health = HealthMonitor();
 
   // ------------------------------------------------------------------ freeze debugging
 
@@ -1914,6 +1918,7 @@ class AppState extends ChangeNotifier {
     _probeOutcomes.clear();
     stalls.resetSession();
     _sessionOffsets = await mailer.markStart();
+    if (kProv && Platform.isAndroid) await health.start(store.directory, DateTime.now, () => position?.timestamp, _local);
     if (kDebugApp && settings.recordLogcat) {
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
       notifyListeners();
@@ -1923,6 +1928,7 @@ class AppState extends ChangeNotifier {
   Future<void> _endSession() async {
     await BackgroundKeeper.stop();
     crumb('session end: building workbook');
+    health.stop();
     final start = _sessionStart;
     final offsets = _sessionOffsets;
     _sessionStart = null;
@@ -1967,6 +1973,11 @@ class AppState extends ChangeNotifier {
       ..writeln('Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence,')
       ..writeln('DSDS transitions and Transition performance (Hand In / Hand Out), for this session only.');
     b.writeln('UI freezes: ${stalls.count == 0 ? 'none' : '${stalls.count} (worst ${stalls.worstMs} ms), see the UI stalls sheet'}');
+    if (kProv && Platform.isAndroid) {
+      for (final l in health.summaryLines()) {
+        b.writeln(l);
+      }
+    }
     b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
     if (recordings.isNotEmpty) {
       b.writeln('Screen recording: ${recordings.map((f) => '${f.uri.pathSegments.last} (${(f.lengthSync() / 1048576).toStringAsFixed(1)} MB)').join(', ')}. '
@@ -1982,6 +1993,7 @@ class AppState extends ChangeNotifier {
     final dsdsSheet = await _dsdsSummarySheet(end);
     final joinSheet = await _wifiJoinSummarySheet(end);
     final tableSheets = await _transitionSheets();
+    final healthSheet = kProv && Platform.isAndroid && health.samples > 0 && health.file != null ? SheetSource('Health', health.file!.path) : null;
     final deck = await _transitionDeck(prefix, start, end);
     if (Platform.isAndroid && settings.spectrumWifi) {
       final vs = wifiJoin.visitsForSummary();
@@ -2015,7 +2027,7 @@ class AppState extends ChangeNotifier {
         subject: '$kAppName: $prefix',
         body: b.toString(),
         extraFiles: [...logcatFiles, ..._exitFiles, if (deck != null) deck],
-        extraSheets: [if (dsdsSheet != null) dsdsSheet, if (joinSheet != null) joinSheet, ...tableSheets],
+        extraSheets: [if (dsdsSheet != null) dsdsSheet, if (healthSheet != null) healthSheet, if (joinSheet != null) joinSheet, ...tableSheets],
       );
       if (queued) {
         _exitFiles.clear(); // ANR traces went out with this session
