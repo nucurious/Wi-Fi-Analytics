@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -338,6 +339,7 @@ class AppState extends ChangeNotifier {
     _flushTimer = Timer.periodic(const Duration(seconds: 10), (_) => store.flush());
 
     await _checkPreviousExits();
+    await _checkResumable();
     device = await RadioInfo.deviceInfo();
     final imei = device['imeiLast4'] as String?;
     if (imei != null && settings.imeiLast4.isEmpty) {
@@ -585,6 +587,131 @@ class AppState extends ChangeNotifier {
 
   /// Analytics-Prov: phone health log (battery, thermal, memory, GPS and logging gaps).
   final health = HealthMonitor();
+
+  // ---------------------------------------------------------------- Analytics-Prov: resume the run
+
+  DateTime? _resumeStart;
+  Map<String, int>? _resumeOffsets;
+  String? _resumeNote;
+
+  /// Set at launch when the last run did not end properly (app closed or killed); null once resumed or a new run starts.
+  Map<String, dynamic>? resumable;
+  final _lastAct = <String, DateTime>{};
+
+  File get _resumeFile => File('${store.directory.path}/session_resume.json');
+
+  String get resumeText {
+    final r = resumable;
+    if (r == null) return '';
+    final at = DateTime.tryParse('${r['at']}');
+    return 'The last ${r['profile']} run was closed unexpectedly${at == null ? '' : ' (last seen ${_local(at).split(' ').last})'}. '
+        'Resume it to keep logging into the same files. Starting a new test instead leaves that run in the logs.';
+  }
+
+  Future<void> _writeResumeMarker(TestProfile p) async {
+    if (!kProv || !Platform.isAndroid || _sessionStart == null) return;
+    try {
+      await _resumeFile.writeAsString(jsonEncode({
+        'profile': p.name,
+        'start': _sessionStart!.toIso8601String(),
+        'offsets': _sessionOffsets,
+        'at': DateTime.now().toIso8601String(),
+      }));
+    } catch (_) {}
+  }
+
+  Future<void> _clearResumeMarker() async {
+    try {
+      if (await _resumeFile.exists()) await _resumeFile.delete();
+    } catch (_) {}
+  }
+
+  Future<void> _checkResumable() async {
+    if (!kProv || !Platform.isAndroid) return;
+    try {
+      if (!await _resumeFile.exists()) return;
+      final j = jsonDecode(await _resumeFile.readAsString()) as Map<String, dynamic>;
+      final at = DateTime.tryParse('${j['at']}');
+      final ok = const {'drive', 'lab', 'walk'}.contains(j['profile']) &&
+          at != null &&
+          DateTime.now().difference(at) < const Duration(hours: 12);
+      if (!ok) {
+        await _clearResumeMarker();
+        return;
+      }
+      resumable = j;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Continues the run that was cut off: same start time, same log offsets (so the workbook holds the whole run),
+  /// same profile. The gap is marked on the Health sheet.
+  Future<void> resumeRun() async {
+    final r = resumable;
+    if (r == null || running) return;
+    resumable = null;
+    try {
+      _resumeStart = DateTime.parse('${r['start']}');
+      _resumeOffsets = (r['offsets'] as Map?)?.map((k, v) => MapEntry('$k', (v as num).toInt()));
+      final at = DateTime.tryParse('${r['at']}');
+      _resumeNote = 'run resumed after the app was closed'
+          '${at == null ? '' : ' (not logging for about ${(DateTime.now().difference(at).inSeconds / 60).toStringAsFixed(0)} min)'}';
+      crumb('resume run: $_resumeNote');
+    } catch (_) {
+      _resumeStart = null;
+      _resumeOffsets = null;
+      notifyListeners();
+      return;
+    }
+    switch (r['profile']) {
+      case 'lab':
+        await startLabTest();
+        break;
+      case 'walk':
+        await startWalkTest();
+        break;
+      default:
+        await startDriveTest();
+    }
+  }
+
+  bool _canAct(String key, int seconds) {
+    final now = DateTime.now();
+    final last = _lastAct[key];
+    if (last != null && now.difference(last).inSeconds < seconds) return false;
+    _lastAct[key] = now;
+    return true;
+  }
+
+  /// Called with each health sample (every 10 s). Brings back what stopped (foreground service, GPS stream,
+  /// screen-on lock), keeps the resume marker fresh, and returns what it did for the Health sheet.
+  Future<String> _watchdog(Map<String, Object?> s) async {
+    final notes = <String>[];
+    if (_resumeNote != null) {
+      notes.add(_resumeNote!);
+      _resumeNote = null;
+    }
+    if (!running || _sessionStart == null) return notes.join('; ');
+    await _writeResumeMarker(_sessionProfile);
+    try {
+      if (s['service'] == false && _canAct('svc', 30)) {
+        await BackgroundKeeper.start();
+        notes.add('foreground service restarted');
+        crumb('watchdog: foreground service restarted');
+      }
+      final age = (s['gpsAge'] as num?)?.toDouble();
+      if (locationProblem == null && (age == null || age > HealthMonitor.gpsLostSeconds) && _canAct('gps', 60)) {
+        await startLocation();
+        notes.add('GPS stream restarted');
+        crumb('watchdog: GPS stream restarted');
+      }
+      if (settings.keepScreenOn && !await WakelockPlus.enabled && _canAct('wake', 60)) {
+        await WakelockPlus.enable();
+        notes.add('screen-on lock restored');
+      }
+    } catch (_) {}
+    return notes.join('; ');
+  }
 
   // ------------------------------------------------------------------ freeze debugging
 
@@ -1903,7 +2030,7 @@ class AppState extends ChangeNotifier {
     await BackgroundKeeper.start(); // Video Call Analytics: foreground service, no-op in the other builds
     clockOffsetMs = null;
     unawaited(ntpOffsetMs().then((v) => clockOffsetMs = v));
-    _sessionStart = DateTime.now();
+    _sessionStart = _resumeStart ?? DateTime.now();
     _sessionProfile = p;
     _activeServer = null;
     _activeByTest.clear();
@@ -1917,8 +2044,15 @@ class AppState extends ChangeNotifier {
     _probeLostN = 0;
     _probeOutcomes.clear();
     stalls.resetSession();
-    _sessionOffsets = await mailer.markStart();
-    if (kProv && Platform.isAndroid) await health.start(store.directory, DateTime.now, () => position?.timestamp, _local);
+    _sessionOffsets = _resumeOffsets ?? await mailer.markStart();
+    final resuming = _resumeStart != null;
+    _resumeStart = null;
+    _resumeOffsets = null;
+    resumable = null;
+    _lastAct['gps'] = DateTime.now();
+    _lastAct['svc'] = DateTime.now();
+    await _writeResumeMarker(p);
+    if (kProv && Platform.isAndroid) await health.start(store.directory, DateTime.now, () => position?.timestamp, _local, resume: resuming, recover: _watchdog);
     if (kDebugApp && settings.recordLogcat) {
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
       notifyListeners();
@@ -1929,6 +2063,7 @@ class AppState extends ChangeNotifier {
     await BackgroundKeeper.stop();
     crumb('session end: building workbook');
     health.stop();
+    await _clearResumeMarker();
     final start = _sessionStart;
     final offsets = _sessionOffsets;
     _sessionStart = null;
