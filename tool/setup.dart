@@ -24,6 +24,7 @@ void main() {
   final bundleId = Platform.environment['BUNDLE_ID']?.trim();
   _removeTemplateTest();
   _patchAndroidManifest();
+  if (Platform.environment['PROV'] == 'true') _installProvIcon();
   if (bundleId != null && bundleId.isNotEmpty) _patchAndroidAppId(bundleId);
   _patchInfoPlist();
   if (bundleId != null && bundleId.isNotEmpty) _patchIosBundleId(bundleId);
@@ -98,6 +99,40 @@ void _patchAndroidManifest() {
   }
   f.writeAsStringSync(xml);
   stdout.writeln('Patched AndroidManifest.xml${debugApp ? ' (debug app, READ_LOGS)' : ''}');
+}
+
+// Analytics Pro launcher icon: a small cell tower with Wi-Fi arcs (adaptive icon, Android 8+; older phones keep the default icon).
+void _installProvIcon() {
+  final res = 'android/app/src/main/res';
+  if (!Directory('android/app/src/main').existsSync()) return;
+  Directory('${res}/drawable').createSync(recursive: true);
+  Directory('${res}/mipmap-anydpi-v26').createSync(recursive: true);
+  const fg = r'''<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+  <path android:fillColor="#FFFFFF"
+      android:pathData="M54,48.5 a3.5,3.5 0 1,0 0.01,0 z" />
+  <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round"
+      android:pathData="M46.93,44.93 A10,10 0 0,1 61.07,44.93" />
+  <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round"
+      android:pathData="M40.57,38.57 A19,19 0 0,1 67.43,38.57" />
+  <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round"
+      android:pathData="M34.2,32.2 A28,28 0 0,1 73.8,32.2" />
+  <path android:strokeColor="#FFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+      android:pathData="M54,56 L42,88 M54,56 L66,88 M36,88 L72,88 M48,72 L60,72 M45,80 L63,80 M48,72 L63,80 M60,72 L45,80" />
+</vector>
+''';
+  const icon = '''<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="#0B3D91" />
+  <foreground android:drawable="@drawable/ic_launcher_foreground" />
+  <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
+''';
+  File('${res}/drawable/ic_launcher_foreground.xml').writeAsStringSync(fg);
+  File('${res}/mipmap-anydpi-v26/ic_launcher.xml').writeAsStringSync(icon);
+  stdout.writeln('Installed Analytics Pro launcher icon');
 }
 
 void _patchAndroidAppId(String id) {
