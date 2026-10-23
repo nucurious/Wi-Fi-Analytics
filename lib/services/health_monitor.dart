@@ -14,13 +14,14 @@ import 'background_keeper.dart';
 /// logging (a gap is a sample that came much later than it should: the phone froze or paused the app).
 class HealthMonitor extends ChangeNotifier {
   static const interval = Duration(seconds: 10);
-  static const gapSeconds = 25; // a sample this late = the app was not running normally
-  static const gpsLostSeconds = 10; // no GPS fix for this long
+  static const gapSeconds = 15; // a sample this late = the app was not running normally
+  static const gpsLostSeconds = 15; // no GPS fix for this long
+  static const lowBatteryPct = 30; // flag: below this and not charging
 
   static const header = [
     'time_utc', 'time_local', 'since_last_s', 'battery_pct', 'charging', 'plugged', 'battery_temp_c', 'battery_mv',
     'thermal', 'power_save', 'doze', 'screen_on', 'battery_opt_ignored', 'phone_free_mem_mb', 'low_memory',
-    'app_pss_mb', 'app_heap_mb', 'gps_age_s', 'service_running', 'logging_gap',
+    'app_pss_mb', 'app_heap_mb', 'gps_age_s', 'service_running', 'logging_gap', 'recovery',
   ];
   static const thermalNames = ['None', 'Light', 'Moderate', 'Severe', 'Critical', 'Emergency', 'Shutdown'];
 
@@ -49,6 +50,9 @@ class HealthMonitor extends ChangeNotifier {
   bool _gpsLost = false;
   int serviceDownSamples = 0;
   int chargingSamples = 0;
+  int lowBatterySamples = 0;
+  int recoveries = 0;
+  Future<String> Function(Map<String, Object?>)? _recover;
 
   bool get active => _timer != null;
 
@@ -57,7 +61,7 @@ class HealthMonitor extends ChangeNotifier {
     batteryStart = batteryEnd = batteryMin = tempMax = tempStart = freeMemMin = pssMax = null;
     thermalWorst = 0;
     thermalWorstAt = '';
-    lowMemorySamples = powerSaveSamples = dozeSamples = gapCount = gpsLostCount = serviceDownSamples = chargingSamples = 0;
+    lowMemorySamples = powerSaveSamples = dozeSamples = gapCount = gpsLostCount = serviceDownSamples = chargingSamples = lowBatterySamples = recoveries = 0;
     gapTotalS = gapWorstS = gpsLostTotalS = 0;
     _gpsLost = false;
     _lastSample = null;
@@ -69,13 +73,17 @@ class HealthMonitor extends ChangeNotifier {
     return RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
   }
 
-  Future<void> start(Directory dir, DateTime Function() now, DateTime? Function() lastGpsFix, String Function(DateTime) local) async {
+  /// [resume]: the run continues after the app was closed; the earlier Health rows are kept.
+  /// [recover]: called with each sample; brings back what stopped and returns what it did (the recovery column).
+  Future<void> start(Directory dir, DateTime Function() now, DateTime? Function() lastGpsFix, String Function(DateTime) local,
+      {bool resume = false, Future<String> Function(Map<String, Object?>)? recover}) async {
     stop();
     _reset();
+    _recover = recover;
     _start = now();
     _lastSample = _start;
     file = File('${dir.path}/health_session.csv');
-    await file!.writeAsString('${header.join(',')}\n');
+    if (!(resume && await file!.exists())) await file!.writeAsString('${header.join(',')}\n');
     await _sample(lastGpsFix, local);
     _timer = Timer.periodic(interval, (_) => _sample(lastGpsFix, local));
     notifyListeners();
@@ -133,6 +141,7 @@ class HealthMonitor extends ChangeNotifier {
       if (h['doze'] == true) dozeSamples++;
       if (charging) chargingSamples++;
       if (svc == false) serviceDownSamples++;
+      if (pct != null && pct < lowBatteryPct && !charging) lowBatterySamples++;
       final lost = gpsAge == null || gpsAge > gpsLostSeconds;
       if (lost) {
         gpsLostTotalS += interval.inSeconds;
@@ -152,7 +161,16 @@ class HealthMonitor extends ChangeNotifier {
         'powerSave': h['powerSave'],
         'doze': h['doze'],
         'gaps': gapCount,
+        'lowBattery': lowBatterySamples,
       };
+      var note = '';
+      if (_recover != null) {
+        try {
+          note = await _recover!(last);
+        } catch (_) {}
+      }
+      if (note.isNotEmpty) recoveries++;
+      last['recoveries'] = recoveries;
       final row = [
         t.toUtc().toIso8601String(),
         local(t),
@@ -174,6 +192,7 @@ class HealthMonitor extends ChangeNotifier {
         gpsAge?.toStringAsFixed(1),
         svc == null ? '' : (svc ? 'yes' : 'NO'),
         gap ? 'yes' : '',
+        note,
       ];
       await file?.writeAsString('${row.map(_q).join(',')}\n', mode: FileMode.append);
       notifyListeners();
@@ -201,6 +220,8 @@ class HealthMonitor extends ChangeNotifier {
       if (gapCount > 0) '$gapCount logging gap${gapCount == 1 ? '' : 's'} (worst ${f(gapWorstS)} s, total ${f(gapTotalS)} s): the app was paused or the phone froze',
       if (gpsLostCount > 0) 'GPS fixes stopped $gpsLostCount time${gpsLostCount == 1 ? '' : 's'} (${f(gpsLostTotalS)} s in all)',
       if (serviceDownSamples > 0) 'foreground service was not running in $serviceDownSamples samples',
+      if (lowBatterySamples > 0) 'battery under $lowBatteryPct% and not charging in $lowBatterySamples samples',
+      if (recoveries > 0) '$recoveries automatic recover${recoveries == 1 ? 'y' : 'ies'} (service, GPS or screen lock restarted, or the run resumed): see the recovery column',
       if (lowMemorySamples > 0) 'phone reported low memory in $lowMemorySamples samples',
       if (powerSaveSamples > 0) 'battery saver was on in $powerSaveSamples samples',
       if (dozeSamples > 0) 'Doze (idle mode) in $dozeSamples samples',
