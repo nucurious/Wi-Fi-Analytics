@@ -16,7 +16,7 @@ A field network-testing app for **iPhone and Android** (one Flutter codebase).
 - **Spectrum Mobile Wi-Fi**, Android: every scan that hears a Spectrum SSID, time from first heard to connected (association, authentication, IP, internet validated), and time connected and sending traffic on it, with per-session statistics.
 - **Debug app** (`Analytics_debug_ver1.0`, Android): everything above plus logcat for every session.
 - **Video Call Analytics** (`Video_Call_Analytics`, Android, branch next-1-5): a foreground service keeps logging while a call app is on screen; Pair ID and Role (Caller / Callee) in Settings > Call pair go into the file name; phone clock vs network time at session start; Record screen for call-quality analysis at HQ.
-- **Analytics-Prov** (`Analytics-Prov1.0`, Android, branch analytics-prov-1-0): everything in Video Call Analytics plus a phone health log every 10 s (battery, temperature, thermal status, memory, GPS age, foreground service, logging gaps) on a Health sheet, in the summary and on a Phone health card.
+- **Analytics-Prov** (`Analytics-Prov1.0`, Android, branch analytics-prov-1-0): everything in Video Call Analytics plus a phone health log every 10 s (battery, temperature, thermal status, memory, GPS age, foreground service, logging gaps) on a Health sheet, in the summary and on a Phone health card. From October 23 it is called Analytics Pro v1.1 (Analytics_Pro_v1.1.apk, workflow Analytics Pro (Android)): new icon, a Resume run banner if the app is closed during a Drive, Walk or Lab run, and a watchdog that restarts the foreground service, GPS stream and screen-on lock.
 
 **To build and install, follow [BUILD_GUIDE.md](BUILD_GUIDE.md).** No developer tools are needed on your computer.
 CSV column definitions are in [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
@@ -42,6 +42,7 @@ CSV column definitions are in [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 | 2.6 | Oct 20, 2026 | 803d6fa | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
 | 2.7 | Oct 22, 2026 | b4478b6 to a874ddc | App 1.3.9 to 1.4.1 (iPerf server order, Record screen, Environment setting, Transition table and User-plane interruption sheets, tables-only PowerPoint, version in the app name), Video Call Analytics 1.5.0 (foreground service, Pair ID and Role, clock check) and Analytics-Prov1.0 (phone health log); features, layout, notes and version tables updated. |
+| 2.8 | Oct 23, 2026 | 14a7839 | Analytics-Prov1.0 renamed Analytics Pro v1.1 (launcher icon: cell tower with Wi-Fi arcs); resume the run after the app is closed and a watchdog that restarts the foreground service, GPS stream and screen-on lock; stricter health limits; rMAC from an adb bug report or rmac_logger.py for AAA / Splunk (HQ script). |
 
 ## App and script versions
 
@@ -71,6 +72,7 @@ CSV column definitions are in [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
 | Analytics_debug_ver1.0 (Android) | 1.0.9 to 1.1.1 | Oct 21-22, 2026 | branches next-1-3-9, next-1-4 | Same as the main app of the same number, plus logcat as before. |
 | Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Foreground service, Pair ID and Role, phone clock vs network time. |
 | Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0; APK build #1) | Video Call Analytics plus the phone health log (Health sheet). Not yet run on a phone. |
+| Analytics_Pro_v1.1 (Android) | 1.1 | Oct 23, 2026 | 14a7839 (branch analytics-prov-1-0; build #4 started) | Renamed from Analytics-Prov1.0 (same application ID, installs over it). Launcher icon, Resume run banner, watchdog, Health sheet recovery column. Not yet run on a phone. |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
