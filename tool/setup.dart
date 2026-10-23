@@ -125,11 +125,14 @@ void _installProvIcon() {
 ''';
   const icon = '''<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-  <background android:drawable="#0B3D91" />
+  <background android:drawable="@color/ic_launcher_background" />
   <foreground android:drawable="@drawable/ic_launcher_foreground" />
   <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>
 ''';
+  Directory('${res}/values').createSync(recursive: true);
+  File('${res}/values/ic_launcher_background.xml').writeAsStringSync(
+      '<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ic_launcher_background">#0B3D91</color></resources>\n');
   File('${res}/drawable/ic_launcher_foreground.xml').writeAsStringSync(fg);
   File('${res}/mipmap-anydpi-v26/ic_launcher.xml').writeAsStringSync(icon);
   stdout.writeln('Installed Analytics Pro launcher icon');
