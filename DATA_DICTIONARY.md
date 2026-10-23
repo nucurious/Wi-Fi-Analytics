@@ -62,6 +62,7 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | 2.5 | Oct 20, 2026 | 9270aa1 | App 1.3.7 / debug 1.0.7: Spectrum Mobile Wi-Fi scans, time to connect and time on it (Spectrum Wi-Fi visits, Wi-Fi scans, Wi-Fi connection steps, Wi-Fi join performance). |
 | 2.6 | Oct 20, 2026 | 803d6fa | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
 | 2.7 | Oct 22, 2026 | b4478b6 to a874ddc | App 1.3.9 to 1.4.1, Video Call Analytics 1.5.0 (Pair ID and Role in the file name) and Analytics-Prov1.0: new Health sheet (health.csv). Traffic recovery vs IP ready explained (Transition performance, switch_time_s, Traffic gaps). |
+| 2.8 | Oct 23, 2026 | 14a7839 | Analytics-Prov1.0 renamed Analytics Pro v1.1: Health sheet gets a recovery column and stricter flags (logging gap over 15 s, GPS lost over 15 s, low battery under 30 percent, thermal Moderate or worse); rMAC sheets (from a bug report and from rmac_logger.py) with a Calling-Station-Id column. |
 
 ## App and script versions
 
@@ -90,10 +91,12 @@ Rows in `samples.csv` and `twamp.csv` link to `tests.csv` by `test_id`.
 | Wi-Fi_Analytics_v1.3 (Android) | 1.4.1 | Oct 22, 2026 | b4478b6 (branch next-1-4) | App name follows the version. |
 | Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Pair ID and Role in the file name and summary; phone clock vs network time. |
 | Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0) | Health sheet (health.csv). |
+| Analytics_Pro_v1.1 (Android) | 1.1 | Oct 23, 2026 | 14a7839 (branch analytics-prov-1-0; build #4 started) | Analytics-Prov1.0 renamed (same application ID), launcher icon (cell tower with Wi-Fi arcs), resume the run after the app is closed (Drive, Walk, Lab; within 12 h), watchdog restarts the foreground service, GPS stream and screen-on lock, Health sheet recovery column. Not yet run on a phone. |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
-| dsds_statistics.py (PC / server) | 1.0 | Oct 22, 2026 | file only | HQ reports: transitions (Traffic recovery first, IP ready second), drive route report, call quality, TWAMP reflector. |
+| dsds_statistics.py (PC / server) | 1.0 | Oct 22, 2026 | file only | HQ reports: transitions (Traffic recovery first, IP ready second), drive route report, call quality, TWAMP reflector. From Oct 23: report --bugreport adds SCONE / Connection Manager versions and an rMAC sheet; report --rmac-log adds an rMAC during run sheet. |
+| rmac_logger.py (PC) | 1.0 | Oct 23, 2026 | file only | Logs the phone Wi-Fi MAC, SSID and BSSID over adb every 10 s (one row per change) to rmac_log.csv. Not yet tested on a phone. |
 
 Versions 1.0 to 1.2 are labels given afterwards to group the builds; those APKs show 1.0.0 in Android settings. From 1.3 the version is set in the build. Commits are in github.com/nucurious/Wi-Fi-Analytics.
 
@@ -409,8 +412,15 @@ Written for the session email only (not in the Data-tab export). One row every 1
 | power_save, doze, screen_on, battery_opt_ignored | Battery saver, Doze (idle mode), screen on, app exempt from battery optimisation (yes / no) |
 | phone_free_mem_mb, low_memory | Free memory on the phone; yes when Android reports low memory |
 | app_pss_mb, app_heap_mb | The app's memory (PSS) and Dart / Java heap |
-| gps_age_s | Seconds since the last GPS fix (over 10 = GPS lost) |
+| gps_age_s | Seconds since the last GPS fix (over 15 = GPS lost; the watchdog restarts the GPS stream) |
 | service_running | Foreground service up (yes / NO; blank in builds without it) |
-| logging_gap | yes when this sample came more than 25 s after the previous one: the app was paused or the phone froze |
+| logging_gap | yes when this sample came more than 15 s after the previous one: the app was paused or the phone froze |
+| recovery | What the app did at this sample (Analytics Pro v1.1): foreground service restarted, GPS stream restarted, screen-on lock restored, or run resumed after the app was closed (with the minutes not logged). Blank when nothing was needed |
 
-summary.txt also gets a Health line (battery start and end, max temperature, worst thermal status, minimum free memory, maximum app memory) and a Health flags line (throttling, logging gaps, GPS lost, service down, low memory, battery saver, Doze).
+summary.txt also gets a Health line (battery start and end, max temperature, worst thermal status, minimum free memory, maximum app memory) and a Health flags line (throttling, logging gaps, GPS lost, service down, low battery, low memory, battery saver, Doze) and the number of automatic recoveries. Limits from v1.1: logging gap over 15 s, GPS lost over 15 s, battery under 30 percent while not charging, thermal Moderate or worse. Low battery and heat are flagged only.
+
+A run cut off by the app being closed or killed can be resumed (Drive, Walk and Lab runs, within 12 h of the last sample): the same files and start time continue and the gap is written to the recovery column. The app is not restarted by Android; the tester reopens it and taps Resume run.
+
+## rMAC sheets (HQ report, dsds_statistics.py)
+
+Android does not give an app the phone's own Wi-Fi MAC, so the randomized MAC (rMAC) is added at HQ from adb data. `report --bugreport <bugreport.zip>` adds sheet **rMAC**: one row per saved SSID in the bug report (dumpsys wifi) with the rMAC the phone uses for it now, the randomization setting (none, persistent, non-persistent, enhanced) and whether that SSID appears in the run. `report --rmac-log <rmac_log.csv>` (from rmac_logger.py, run on a computer with the phone attached during the run) adds sheet **rMAC during run**: every MAC seen with its SSID, first and last time seen and number of log rows. Both sheets have a **Calling-Station-Id (AA-BB-..)** column (uppercase, hyphens) for searching AAA records in Splunk. A bug report shows only the MAC in use when it was taken; with enhanced randomization or after forgetting a network it can differ from the run, so use the logger when every value matters.
