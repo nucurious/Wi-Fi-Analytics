@@ -45,6 +45,8 @@ class _TestScreenState extends State<TestScreen> {
               ),
             if (s.lastError != null)
               _Banner(icon: Icons.error_outline, text: s.lastError!, error: true),
+            if (kProv && s.resumable != null && !s.running)
+              _Banner(icon: Icons.restore, text: s.resumeText, action: 'Resume run', onAction: s.resumeRun),
             _StatusCard(state: s),
             const SizedBox(height: 12),
             if (kProv) ...[HealthCard(state: s), const SizedBox(height: 12)],
