@@ -29,6 +29,7 @@ class HealthCard extends StatelessWidget {
           if (h.gapCount > 0) '${h.gapCount} gaps',
           if (h.gpsLostCount > 0) 'GPS lost ${h.gpsLostCount}x',
           if (l['service'] == false) 'service down',
+          if (h.lowBatterySamples > 0) 'low battery',
         ];
         Widget row(String a, String b) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -54,7 +55,7 @@ class HealthCard extends StatelessWidget {
                 row('Memory', 'app ${f(l['pss'])} MB  ·  phone free ${f(l['free'])} MB'),
                 row('GPS', l['gpsAge'] == null ? 'no fix yet' : 'last fix ${f(l['gpsAge'], 0)} s ago'),
                 row('Service', l['service'] == null ? 'not used in this build' : (l['service'] == true ? 'running' : 'NOT running')),
-                row('Logging', '${h.samples} samples  ·  ${h.gapCount} gap${h.gapCount == 1 ? '' : 's'}  ·  updated ${l['time']}'),
+                row('Logging', '${h.samples} samples  ·  ${h.gapCount} gap${h.gapCount == 1 ? '' : 's'}  ·  ${h.recoveries} auto-recover${h.recoveries == 1 ? 'y' : 'ies'}  ·  updated ${l['time']}'),
               ],
             ),
           ),
