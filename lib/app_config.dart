@@ -12,6 +12,10 @@ const bool kProv = bool.fromEnvironment('PROV');
 /// flutter run --release --dart-define=TWAMP_HOST=10.0.1.25:8620. Blank = no default.
 const String kDefaultReflector = String.fromEnvironment('TWAMP_HOST');
 
+/// Several reflectors, comma separated (--dart-define=TWAMP_HOSTS=a:862,b:862). The app tests each one and uses the best
+/// (no loss first, then lowest round-trip time) when Settings has no reflector.
+const String kReflectorList = String.fromEnvironment('TWAMP_HOSTS');
+
 /// Test settings fixed at build time with --dart-define, applied on every start (for phones where typing in Settings
 /// is not possible). -1 or blank = leave the saved setting alone. UDP_DURATION=0 runs until Stop.
 const int kUdpDuration = int.fromEnvironment('UDP_DURATION', defaultValue: -1);
