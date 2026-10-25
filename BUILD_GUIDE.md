@@ -88,7 +88,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Wi-Fi_Analytics_v1.3 (Android) | 1.4.1 | Oct 22, 2026 | b4478b6 (branch next-1-4; APK build #36) | App name and APK file name follow the version. |
 | Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Foreground service, Pair ID and Role, phone clock vs network time. |
 | Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0; APK build #1) | Video Call Analytics plus the phone health log. Not yet run on a phone. |
-| Analytics_Pro_v1.1 (Android) | 1.1 | Oct 23, 2026 | 14a7839 (branch analytics-prov-1-0; build #4 started) | Renamed from Analytics-Prov1.0. Same application ID, installs over it. Not yet run on a phone. |
+| Analytics_Pro_v1.1 (Android) | 1.1 | Oct 23, 2026 | 14a7839 (branch analytics-prov-1-0; build #5 finished) | Renamed from Analytics-Prov1.0. Same application ID, installs over it. Not yet run on a phone. |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
 | setup-windows-test-server.ps1 (lab server) | 1.0 | Oct 18, 2026 | 7be8bc7 | iperf3 3.21 on ports 5201-5205 and TWAMP reflector on UDP 862, start at boot, firewall rules, self-test. Not used by the app from 1.3.6 (public servers only); kept in the repository for later. |
 | wifi_analytics.py (log/PCAP analyzer, PC) | v5.14 | Oct 16, 2026 | Golden PY folder; Google Drive | Device-IP and DDS/subscription classification separating Wi-Fi, Spectrum Mobile on Verizon and Spectrum HMNO; registry-checked carrier IP ranges; Classification Basis sheet (section 12). |
