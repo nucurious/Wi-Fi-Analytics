@@ -105,15 +105,6 @@ workflows:
         VERSION: "1.2"
         PROV: "true"
         VIDEO_CALL: "true"
-        # Test settings baked into the app (see BUILD_GUIDE.md). -1 or empty = leave the app's own setting alone.
-        TWAMP_HOST: ""
-        TWAMP_HOSTS: ""
-        IPERF_SERVER: ""
-        UDP_DURATION: "-1"
-        UDP_MBPS: "-1"
-        UDP_PARALLEL: "-1"
-        TCP_DURATION: "-1"
-        TCP_PARALLEL: "-1"
     scripts:
       - name: Generate platform folders
         script: flutter create --no-pub --org com.wifianalytics --project-name wifi_analytics --platforms=android .
@@ -125,9 +116,9 @@ workflows:
         script: |
           flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER \
             --dart-define=PROV=true --dart-define=VIDEO_CALL=true --dart-define=APP_NAME=Analytics_Pro_v$VERSION \
-            --dart-define=TWAMP_HOST=$TWAMP_HOST --dart-define=TWAMP_HOSTS=$TWAMP_HOSTS --dart-define=IPERF_SERVER=$IPERF_SERVER \
-            --dart-define=UDP_DURATION=$UDP_DURATION --dart-define=UDP_MBPS=$UDP_MBPS --dart-define=UDP_PARALLEL=$UDP_PARALLEL \
-            --dart-define=TCP_DURATION=$TCP_DURATION --dart-define=TCP_PARALLEL=$TCP_PARALLEL
+            --dart-define=TWAMP_HOST=${TWAMP_HOST:-} --dart-define=TWAMP_HOSTS=${TWAMP_HOSTS:-} --dart-define=IPERF_SERVER=${IPERF_SERVER:-} \
+            --dart-define=UDP_DURATION=${UDP_DURATION:--1} --dart-define=UDP_MBPS=${UDP_MBPS:--1} --dart-define=UDP_PARALLEL=${UDP_PARALLEL:--1} \
+            --dart-define=TCP_DURATION=${TCP_DURATION:--1} --dart-define=TCP_PARALLEL=${TCP_PARALLEL:--1}
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Analytics_Pro_v$VERSION.apk
     artifacts:
       - build/app/outputs/flutter-apk/Analytics_Pro_v*.apk
