@@ -11,3 +11,12 @@ const bool kProv = bool.fromEnvironment('PROV');
 /// TWAMP reflector used when none is set in Settings (host or host:port), fixed at build time:
 /// flutter run --release --dart-define=TWAMP_HOST=10.0.1.25:8620. Blank = no default.
 const String kDefaultReflector = String.fromEnvironment('TWAMP_HOST');
+
+/// Test settings fixed at build time with --dart-define, applied on every start (for phones where typing in Settings
+/// is not possible). -1 or blank = leave the saved setting alone. UDP_DURATION=0 runs until Stop.
+const int kUdpDuration = int.fromEnvironment('UDP_DURATION', defaultValue: -1);
+const int kUdpMbps = int.fromEnvironment('UDP_MBPS', defaultValue: -1);
+const int kUdpParallel = int.fromEnvironment('UDP_PARALLEL', defaultValue: -1);
+const int kTcpDuration = int.fromEnvironment('TCP_DURATION', defaultValue: -1);
+const int kTcpParallel = int.fromEnvironment('TCP_PARALLEL', defaultValue: -1);
+const String kIperfServer = String.fromEnvironment('IPERF_SERVER'); // host or host:port
