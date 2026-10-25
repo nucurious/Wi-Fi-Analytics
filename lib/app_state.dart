@@ -309,10 +309,45 @@ class AppState extends ChangeNotifier {
 
   bool get initialized => _initialized;
 
+  /// Test settings fixed at build time (--dart-define=UDP_DURATION=0 UDP_MBPS=200 ...), applied on every start.
+  Future<void> _applyBuildOverrides() async {
+    var changed = false;
+    if (kUdpDuration >= 0 && settings.udpDuration != kUdpDuration) {
+      settings.udpDuration = kUdpDuration;
+      changed = true;
+    }
+    if (kUdpMbps >= 0 && settings.udpMbps != kUdpMbps.toDouble()) {
+      settings.udpMbps = kUdpMbps.toDouble();
+      changed = true;
+    }
+    if (kUdpParallel >= 1 && settings.udpParallel != kUdpParallel) {
+      settings.udpParallel = kUdpParallel;
+      changed = true;
+    }
+    if (kTcpDuration >= 0 && settings.tcpDuration != kTcpDuration) {
+      settings.tcpDuration = kTcpDuration;
+      changed = true;
+    }
+    if (kTcpParallel >= 1 && settings.tcpParallel != kTcpParallel) {
+      settings.tcpParallel = kTcpParallel;
+      changed = true;
+    }
+    if (kIperfServer.isNotEmpty) {
+      final (h, p) = splitHostPort(kIperfServer);
+      if (h.trim().isNotEmpty && (h.trim() != settings.host || (p != null && p != settings.port))) {
+        settings.host = h.trim();
+        if (p != null) settings.port = p;
+        changed = true;
+      }
+    }
+    if (changed) await _saveSettings();
+  }
+
   Future<void> init() async {
     await store.init();
     stalls.start();
     settings = Settings.fromJson(await store.loadSettings());
+    await _applyBuildOverrides();
     wifiJoin.patterns = WifiJoinTracker.parsePatterns(settings.spectrumSsids);
     await _loadHmnoGeofence();
     sites = await store.loadSites();
