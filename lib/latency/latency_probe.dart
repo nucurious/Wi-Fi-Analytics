@@ -396,3 +396,31 @@ class PingProbe implements LatencyProbe {
     await _controller.close();
   }
 }
+
+/// Quickly tests each candidate reflector (about 1 s each) and returns the best one: it answers, has the fewest
+/// lost packets, then the lowest median round-trip time. Null when none answered.
+Future<(String, int)?> pickBestReflector(List<(String, int)> candidates) async {
+  (String, int)? best;
+  var bestScore = double.infinity;
+  for (final c in candidates) {
+    final probe = TwampLightProbe(host: c.$1, port: c.$2, rateHz: 10, timeout: const Duration(milliseconds: 700));
+    final acc = LatencyAccumulator();
+    final sub = probe.results.listen(acc.add, onError: (Object _) {});
+    try {
+      await probe.start();
+      await Future.delayed(const Duration(milliseconds: 600));
+      await probe.stop();
+    } catch (_) {
+      // unreachable or not found: no score
+    }
+    await sub.cancel();
+    final s = acc.stats();
+    if (s.received == 0) continue;
+    final score = (s.lossPercent ?? 100) * 1000 + (s.medianMs ?? 999);
+    if (score < bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return best;
+}
