@@ -37,6 +37,7 @@ Plan on about an hour the first time. After that, a new build is one click.
   - [Tracking freezes](#tracking-freezes)
 - [Alternative: building on your own computer](#alternative-building-on-your-own-computer)
 - [Debug app: Analytics_debug_ver1.0 (records logcat)](#debug-app-analytics_debug_ver10-records-logcat)
+- [Install on specific iPhones (Development build)](#install-on-specific-iphones-development-build)
 - [Video Call Analytics and Analytics-Prov (Android)](#video-call-analytics-and-analytics-prov-android)
 - [HQ reports: dsds_statistics.py](#hq-reports-dsds_statisticspy)
 
@@ -58,6 +59,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | 2.6 | Oct 20, 2026 | 803d6fa | App 1.3.8 / debug 1.0.8: freeze tracking (Mark freeze, recent events and Android main-thread stack on UI stalls); faster restart on network change; versioned APK names. |
 | 2.7 | Oct 22, 2026 | b4478b6 to a874ddc | App 1.3.9 to 1.4.1, Video Call Analytics 1.5.0 and Analytics-Prov1.0 (new Codemagic workflows and setup), HQ reports (dsds_statistics.py: transitions, drive route report, call quality). |
 | 2.8 | Oct 23, 2026 | 14a7839 | Analytics-Prov1.0 renamed Analytics Pro v1.1: new workflow name and APK name, launcher icon, Resume run and watchdog, stricter health limits; HQ rMAC (bug report, rmac_logger.py). |
+| 2.9 | Oct 25, 2026 | file only | New section: install on specific iPhones (Development build): device, App ID, certificate signing request, certificate, .p12, provisioning profile, Codemagic signing. |
 
 ## App and script versions
 
@@ -372,6 +374,22 @@ everything it does, plus records logcat during every test session.
    `session_info.txt` in each folder gives the start time in UTC and the phone's time zone
    (`-v time` stamps are phone local time, without the year).
 
+
+## Install on specific iPhones (Development build)
+
+A certificate is never tied to one device: the device is tied to the provisioning profile. A Development (or Ad Hoc) build installs only on iPhones listed in the profile. TestFlight needs no device list but needs the App Store Connect API key (see Cloud builds above). Requires the Account Holder or Admin role in the Apple developer account.
+
+1. **Register the device.** developer.apple.com > Certificates, Identifiers & Profiles > Devices > +. Enter a name and the UDID (Finder: select the iPhone and click the line under its name until the UDID shows). A device with no label in the list is enabled; its page shows Disable or Enable. 100 iPhones per year.
+2. **Register an explicit App ID.** Identifiers > + > App IDs > App, for example com.charter.wifianalytics. No capabilities for a first build.
+3. **Make a certificate signing request** on the Mac: in Keychain Access click the **login** keychain first (not Local Items), then Keychain Access menu > Certificate Assistant > Request a Certificate From a Certificate Authority. Enter your email, Common Name Wi-Fi Analytics, leave CA Email empty, choose Saved to disk.
+4. **Create the certificate.** Certificates > + > Apple Development (debug installs) or Apple Distribution (Ad Hoc, TestFlight). Upload the request and download the .cer.
+5. **Install it.** Double-click the .cer. In Keychain Access > login > My Certificates the certificate must have an arrow with the private key under it (the Keys tab shows the Wi-Fi Analytics private key). Without the key a .p12 cannot be made: delete the certificate and repeat steps 3 and 4 with login selected. If it says "certificate is not trusted", install Apple Worldwide Developer Relations Certification Authority (G3) from apple.com/certificateauthority.
+6. **Export the .p12.** Right-click the certificate > Export, save as .p12 with a password. Keep the .p12 and password private; they go only into Codemagic.
+7. **Create the profile.** Profiles > + > iOS App Development (or Ad Hoc), choose the App ID, the certificate and the iPhone, download the .mobileprovision. A profile only works on the devices it lists; regenerate it after adding a device.
+8. **Codemagic.** Team settings > Code signing identities > iOS: upload the .p12 with its password and the .mobileprovision. Without a Mac, add the App Store Connect API key instead and let Codemagic generate the certificate and profile.
+9. **Workflow.** In codemagic.yaml set the two CHANGE-ME Bundle ID lines and distribution_type: development (or ad_hoc). A Development build cannot go to TestFlight, so drop the TestFlight publishing step for it. Start the build, open the IPA link from the build page in Safari on the iPhone, and turn on Developer Mode first (Settings > Privacy & Security; the phone restarts).
+
+Status October 25, 2026: iPhone 14 Pro registered; Apple Development certificate (Charter Communications Operating, LLC, valid to Oct 25, 2027) installed with its private key. Still to do: .p12, profile, Codemagic upload, Bundle ID and the codemagic.yaml change.
 
 ## Video Call Analytics and Analytics-Prov (Android)
 
