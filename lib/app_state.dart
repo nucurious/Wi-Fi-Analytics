@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
+import 'package:geolocator_apple/geolocator_apple.dart' show AppleSettings, ActivityType;
 import 'package:path_provider/path_provider.dart';
 import 'package:radio_info/radio_info.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -373,7 +374,7 @@ class AppState extends ChangeNotifier {
     }
     await _positionSub?.cancel();
     _positionSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
+      locationSettings: _locationSettings(),
     ).listen((p) {
       position = p;
       _checkGeofence(p);
@@ -382,6 +383,22 @@ class AppState extends ChangeNotifier {
       locationProblem = 'GPS error: $e';
       notifyListeners();
     });
+  }
+
+  /// iPhone, Analytics Pro: keep location updates running with the screen off or another app in front
+  /// (needs the location background mode in Info.plist, written by tool/setup.dart when PROV is set).
+  LocationSettings _locationSettings() {
+    if (kProv && Platform.isIOS) {
+      return AppleSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+        activityType: ActivityType.other,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
+      );
+    }
+    return const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0);
   }
 
   Future<void> openLocationSettings() async {
@@ -609,7 +626,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _writeResumeMarker(TestProfile p) async {
-    if (!kProv || !Platform.isAndroid || _sessionStart == null) return;
+    if (!kProv || !(Platform.isAndroid || Platform.isIOS) || _sessionStart == null) return;
     try {
       await _resumeFile.writeAsString(jsonEncode({
         'profile': p.name,
@@ -627,7 +644,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _checkResumable() async {
-    if (!kProv || !Platform.isAndroid) return;
+    if (!kProv || !(Platform.isAndroid || Platform.isIOS)) return;
     try {
       if (!await _resumeFile.exists()) return;
       final j = jsonDecode(await _resumeFile.readAsString()) as Map<String, dynamic>;
@@ -2052,7 +2069,7 @@ class AppState extends ChangeNotifier {
     _lastAct['gps'] = DateTime.now();
     _lastAct['svc'] = DateTime.now();
     await _writeResumeMarker(p);
-    if (kProv && Platform.isAndroid) await health.start(store.directory, DateTime.now, () => position?.timestamp, _local, resume: resuming, recover: _watchdog);
+    if (kProv && (Platform.isAndroid || Platform.isIOS)) await health.start(store.directory, DateTime.now, () => position?.timestamp, _local, resume: resuming, recover: _watchdog);
     if (kDebugApp && settings.recordLogcat) {
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
       notifyListeners();
@@ -2108,7 +2125,7 @@ class AppState extends ChangeNotifier {
       ..writeln('Tests, Speed (per second), Latency (per second), GPS track, Server failures, Geofence,')
       ..writeln('DSDS transitions and Transition performance (Hand In / Hand Out), for this session only.');
     b.writeln('UI freezes: ${stalls.count == 0 ? 'none' : '${stalls.count} (worst ${stalls.worstMs} ms), see the UI stalls sheet'}');
-    if (kProv && Platform.isAndroid) {
+    if (kProv && (Platform.isAndroid || Platform.isIOS)) {
       for (final l in health.summaryLines()) {
         b.writeln(l);
       }
@@ -2128,7 +2145,7 @@ class AppState extends ChangeNotifier {
     final dsdsSheet = await _dsdsSummarySheet(end);
     final joinSheet = await _wifiJoinSummarySheet(end);
     final tableSheets = await _transitionSheets();
-    final healthSheet = kProv && Platform.isAndroid && health.samples > 0 && health.file != null ? SheetSource('Health', health.file!.path) : null;
+    final healthSheet = kProv && (Platform.isAndroid || Platform.isIOS) && health.samples > 0 && health.file != null ? SheetSource('Health', health.file!.path) : null;
     final deck = await _transitionDeck(prefix, start, end);
     if (Platform.isAndroid && settings.spectrumWifi) {
       final vs = wifiJoin.visitsForSummary();
