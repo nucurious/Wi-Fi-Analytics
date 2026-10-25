@@ -343,6 +343,34 @@ class AppState extends ChangeNotifier {
     if (changed) await _saveSettings();
   }
 
+  (String, int)? _autoReflector;
+  DateTime? _autoReflectorAt;
+
+  /// Reflectors fixed at build time (--dart-define=TWAMP_HOST and TWAMP_HOSTS=a:862,b:862): test each one briefly and
+  /// use the best (no loss first, then lowest round-trip time). Checked again every 10 minutes and at each latency start.
+  Future<void> _pickReflector() async {
+    if (settings.twampHost.trim().isNotEmpty) return;
+    final cands = <(String, int)>[];
+    for (final s in [kDefaultReflector, ...kReflectorList.split(',')]) {
+      if (s.trim().isEmpty) continue;
+      final (h, p) = splitHostPort(s.trim());
+      if (h.trim().isEmpty) continue;
+      final c = (h.trim(), p ?? 862);
+      if (!cands.contains(c)) cands.add(c);
+    }
+    if (cands.isEmpty) return;
+    if (cands.length == 1) {
+      _autoReflector = cands.first;
+      return;
+    }
+    final at = _autoReflectorAt;
+    if (_autoReflector != null && at != null && DateTime.now().difference(at).inMinutes < 10) return;
+    final best = await pickBestReflector(cands);
+    _autoReflector = best ?? cands.first;
+    _autoReflectorAt = DateTime.now();
+    crumb('TWAMP reflector chosen: ' + _autoReflector!.$1 + ':' + _autoReflector!.$2.toString());
+  }
+
   Future<void> init() async {
     await store.init();
     stalls.start();
@@ -1885,7 +1913,10 @@ class AppState extends ChangeNotifier {
   LatencyProbe? _makeProbe() {
     var reflector = settings.twampHost.trim();
     var reflectorPort = settings.twampPort;
-    if (reflector.isEmpty && kDefaultReflector.isNotEmpty) {
+    if (reflector.isEmpty && _autoReflector != null) {
+      reflector = _autoReflector!.$1;
+      reflectorPort = _autoReflector!.$2;
+    } else if (reflector.isEmpty && kDefaultReflector.isNotEmpty) {
       // Reflector fixed at build time (--dart-define=TWAMP_HOST=host:port), used when Settings has none.
       final (h, p) = splitHostPort(kDefaultReflector);
       reflector = h.trim();
@@ -1912,6 +1943,7 @@ class AppState extends ChangeNotifier {
     if (_probe != null) return;
     latencyProblem = null;
     latencyLive = null;
+    await _pickReflector();
     final probe = _makeProbe();
     if (probe == null) {
       notifyListeners();
