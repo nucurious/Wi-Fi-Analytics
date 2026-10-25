@@ -11,7 +11,7 @@ public class RadioInfoPlugin: NSObject, FlutterPlugin {
     private let telephony = CTTelephonyNetworkInfo()
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "wifi_analytics.radio_info.path")
-    private var currentPath: NWPath?
+    private var currentPath: Network.NWPath?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -68,7 +68,7 @@ public class RadioInfoPlugin: NSObject, FlutterPlugin {
     private func collect() -> [String: Any] {
         var info: [String: Any] = ["platform": "ios"]
 
-        var path: NWPath?
+        var path: Network.NWPath?
         monitorQueue.sync { path = currentPath }
         if let path = path {
             info["internetValidated"] = path.status == .satisfied
