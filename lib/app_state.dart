@@ -1848,11 +1848,18 @@ class AppState extends ChangeNotifier {
 
   /// Picks TWAMP when a reflector is set, else ping (Android only).
   LatencyProbe? _makeProbe() {
-    final reflector = settings.twampHost.trim();
+    var reflector = settings.twampHost.trim();
+    var reflectorPort = settings.twampPort;
+    if (reflector.isEmpty && kDefaultReflector.isNotEmpty) {
+      // Reflector fixed at build time (--dart-define=TWAMP_HOST=host:port), used when Settings has none.
+      final (h, p) = splitHostPort(kDefaultReflector);
+      reflector = h.trim();
+      reflectorPort = p ?? 862;
+    }
     if (reflector.isNotEmpty) {
       return TwampLightProbe(
         host: reflector,
-        port: settings.twampPort,
+        port: reflectorPort,
         rateHz: settings.latencyRateHz,
         packetBytes: settings.twampPacketBytes,
       );
