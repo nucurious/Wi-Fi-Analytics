@@ -87,6 +87,7 @@ Plan on about an hour the first time. After that, a new build is one click.
 | Wi-Fi_Analytics_v1.3 (Android) | 1.4.0 | Oct 21, 2026 | 9c52fc8 (branch next-1-4) | Environment setting; Transition table and User-plane interruption sheets and a tables-only PowerPoint in the session email. |
 | Wi-Fi_Analytics_v1.3 (Android) | 1.4.1 | Oct 22, 2026 | b4478b6 (branch next-1-4; APK build #36) | App name and APK file name follow the version. |
 | Video_Call_Analytics (Android) | 1.5.0 | Oct 22, 2026 | branch next-1-5 | Foreground service, Pair ID and Role, phone clock vs network time. |
+| Video_Call_Analytics (Android) | 1.5.1 | Nov 11, 2026 | branch next-1-5-1 | Asks to record the screen when a session starts (Settings > Call pair > Record screen when a session starts, on by default); the recording stops with the session and goes into the run folder. Also in Analytics Pro builds from this branch. |
 | Analytics-Prov1.0 (Android) | 1.0 | Oct 22, 2026 | a874ddc (branch analytics-prov-1-0; APK build #1) | Video Call Analytics plus the phone health log. Not yet run on a phone. |
 | Analytics_Pro_v1.1 (Android) | 1.1 | Oct 23, 2026 | 14a7839 (branch analytics-prov-1-0; build #5 finished) | Renamed from Analytics-Prov1.0. Same application ID, installs over it. Not yet run on a phone. |
 | Wi-Fi Analytics (iPhone) | 1.3.8 (code) | Oct 20, 2026 | 803d6fa (current) | Same code as Android 1.3.8 (geofence works on iPhone; DSDS is Android only). Not built yet: needs Bundle ID and App Store Connect key. |
@@ -410,7 +411,7 @@ Two more Android apps built from the same code, each its own install next to the
 |---|---|---|
 | Branch / Codemagic workflow | next-1-5 / Video Call Analytics (Android) | analytics-prov-1-0 / Analytics-Prov (Android) |
 | Application ID | com.example.videocallanalytics | com.example.analyticsprov |
-| APK | Video_Call_Analytics_v1.5.0.apk | Analytics-Prov1.0.apk (about 53 MB, about 6 minutes to build) |
+| APK | Video_Call_Analytics_v1.5.0.apk (v1.5.1 from branch next-1-5-1: asks to record the screen at session start) | Analytics-Prov1.0.apk (about 53 MB, about 6 minutes to build) |
 | Extra over the main app | Foreground service, Pair ID and Role, phone clock check | Everything in Video Call Analytics plus the phone health log |
 
 **First run:** allow Notifications and the battery-optimisation prompt (the foreground service keeps logging with another app on screen; a notification shows while a session runs). Log in to the call app (WhatsApp, Teams, Webex, Meet) by hand on each phone. In **Settings > Call pair** set the same Pair ID on both phones (P1, P2 ...) and a Role (Caller / Callee); both go into the file name and the summary. The summary also states how far the phone clock is from network time (positive = phone ahead).

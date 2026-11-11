@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../app_config.dart';
 import '../app_state.dart';
 import '../iperf/server_pool.dart';
+import '../services/background_keeper.dart';
 import '../util/host_address.dart';
 
 
@@ -35,7 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
   late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno, _spWifi;
-  late bool _walkBack;
+  late bool _walkBack, _autoRec;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts, _spSsids, _scanSec;
   late String _env, _callRole;
   late TextEditingController _pairId;
@@ -100,6 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _locCode = TextEditingController(text: s.locationCode);
     _env = s.testEnvironment;
     _callRole = s.callRole;
+    _autoRec = s.autoScreenRecord;
     _pairId = TextEditingController(text: s.pairId);
     setState(() => _loaded = true);
   }
@@ -172,6 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       locationCode: _locCode.text.trim().toUpperCase(),
       pairId: _pairId.text.trim().toUpperCase(),
       callRole: _callRole,
+      autoScreenRecord: _autoRec,
     ));
     if (!mounted) return;
     if (silent) return;
@@ -438,6 +441,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _scheduleAutoSave();
             },
           ),
+          if (kVideoCall && Platform.isAndroid)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Record screen when a session starts'),
+              subtitle: const Text('Asks to record as the test starts; tap Start now on the phone\'s prompt. The recording stops with the session and goes into the run folder'),
+              value: _autoRec,
+              onChanged: (v) {
+                setState(() => _autoRec = v);
+                _scheduleAutoSave();
+              },
+            ),
           const SizedBox(height: 16),
           _section('Long runs (overnight / weekend)'),
           SwitchListTile(

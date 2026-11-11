@@ -94,7 +94,15 @@ class ScreenRecorder extends ChangeNotifier {
   }
 
   Future<void> stopIfRecording() async {
-    if (recording) await stop();
+    if (recording) {
+      await stop();
+      return;
+    }
+    // The prompt can be accepted after start() gave up waiting: the phone is
+    // recording although this object was never told. Stop it so the MP4 is complete.
+    if (!supported) return;
+    final st = await ScreenRecord.status();
+    if (st['recording'] == true) await ScreenRecord.stop();
   }
 
   void _finished() {

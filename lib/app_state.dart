@@ -89,6 +89,7 @@ class Settings {
   String locationCode; // e.g. DAL; blank = from the site or GPS
   String pairId; // two-phone call tests: the pair this phone belongs to (P1, P2 ...), blank = none
   String callRole; // '' | 'Caller' | 'Callee'
+  bool autoScreenRecord; // Video Call builds, Android: ask to record the screen when a session starts
 
   Settings({
     this.host = '54.90.236.69', // first of the project's own iperf3 servers; public servers are the fallback
@@ -132,6 +133,7 @@ class Settings {
     this.locationCode = '',
     this.pairId = '',
     this.callRole = '',
+    this.autoScreenRecord = kVideoCall,
   });
 
   Map<String, dynamic> toJson() => {
@@ -176,6 +178,7 @@ class Settings {
         'locationCode': locationCode,
         'pairId': pairId,
         'callRole': callRole,
+        'autoScreenRecord': autoScreenRecord,
       };
 
   static const _labServers = {'96.37.191.0', '2600:6ce6:4406:6006:8b6e:251:99cb:9c38', '10.92.5.100'};
@@ -233,6 +236,7 @@ class Settings {
       locationCode: j['locationCode'] as String? ?? d.locationCode,
       pairId: j['pairId'] as String? ?? d.pairId,
       callRole: j['callRole'] as String? ?? d.callRole,
+      autoScreenRecord: j['autoScreenRecord'] as bool? ?? d.autoScreenRecord,
     );
   }
 }
@@ -2119,6 +2123,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _beginSession(TestProfile p) async {
     await BackgroundKeeper.start(); // Video Call Analytics: foreground service, no-op in the other builds
+    await _autoScreenRecord();
     clockOffsetMs = null;
     unawaited(ntpOffsetMs().then((v) => clockOffsetMs = v));
     _sessionStart = _resumeStart ?? DateTime.now();
@@ -2148,6 +2153,29 @@ class AppState extends ChangeNotifier {
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
       notifyListeners();
     }
+  }
+
+  /// Video Call builds (Android): asks to record the screen as the session starts, so the
+  /// whole call is on the MP4. Android shows its own prompt every time; the session waits
+  /// for the answer (at most 60 s) and carries on without a recording if it is declined.
+  /// Null = not asked (other builds, setting off, already recording).
+  bool? autoScreenRecordStarted;
+
+  Future<void> _autoScreenRecord() async {
+    autoScreenRecordStarted = null;
+    if (!kVideoCall || !Platform.isAndroid || !settings.autoScreenRecord) return;
+    final r = ScreenRecorder.instance;
+    if (r.recording) return;
+    crumb('screen recording: asking at session start');
+    bool ok;
+    try {
+      ok = await r.start().timeout(const Duration(seconds: 60), onTimeout: () => false);
+    } catch (_) {
+      ok = false;
+    }
+    autoScreenRecordStarted = ok;
+    crumb(ok ? 'screen recording: started with the session' : 'screen recording: not started (${r.error ?? 'no answer'})');
+    notifyListeners();
   }
 
   Future<void> _endSession() async {
