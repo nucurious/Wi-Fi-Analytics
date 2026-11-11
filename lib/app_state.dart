@@ -2345,7 +2345,7 @@ class AppState extends ChangeNotifier {
         }
         // logcat's session_info.txt belongs with the run too.
         final info = File('${logcat.sessionDir?.path ?? ''}/session_info.txt');
-        if (logcatFiles.isNotEmpty && await info.exists()) await info.copy('${runDir.path}/logcat_session_info.txt');
+        if (logcatFiles.isNotEmpty && await info.exists()) await info.copy('${runDir.path}/${prefix}_logcat_session_info.txt');
         // ScreenRec move: screen recordings made during this session go into the run folder.
         for (final rec in recordings) {
           try {

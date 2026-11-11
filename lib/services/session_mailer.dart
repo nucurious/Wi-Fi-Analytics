@@ -117,7 +117,8 @@ class SessionMailer {
       // Copy: the originals stay on the phone for adb pull / Share logcat.
       if (await f.exists()) await f.copy('${dir.path}/${f.uri.pathSegments.last}');
     }
-    await File('${dir.path}/summary.txt').writeAsString(body);
+    // Named after the run like every other file in the folder.
+    await File('${dir.path}/${filePrefix}_summary.txt').writeAsString(body);
     if (email) {
       // Same name for every session of a day, so each gets its own outbox folder.
       final out = Directory('${outbox.path}/${filePrefix}__${DateTime.now().millisecondsSinceEpoch}');

@@ -10,7 +10,7 @@ import 'package:screen_record/screen_record.dart';
 ///
 /// Files are written to <app external files>/recordings/ScreenRec_yyyymmdd-hhmmss.mp4.
 /// When a test session ends they are moved into that session's run folder
-/// (see takeRecordings) and listed in summary.txt. They are not emailed.
+/// (see takeRecordings) and listed in <run name>_summary.txt. They are not emailed.
 class ScreenRecorder extends ChangeNotifier {
   ScreenRecorder._();
   static final ScreenRecorder instance = ScreenRecorder._();
