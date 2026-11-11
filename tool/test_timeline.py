@@ -8,6 +8,7 @@ For each phone it lines up, on one clock:
   temperature, and, when a screen recording is given, how often the other person's picture updated on screen, with picture stalls marked.
 
 Usage (PC, not the phone):
+  python test_timeline.py                 a window with file pickers
   python test_timeline.py <run folder A> [<run folder B>] [-o timeline.html]
 
 A run folder is what the app exports or `adb pull` copies: the .xlsx workbook, the
@@ -442,21 +443,121 @@ def render(data):
     return page
 
 
-def main():
-    ap = argparse.ArgumentParser(description='Video call timeline (HTML) from one or two run folders.')
-    ap.add_argument('runs', nargs='+', help='run folder, or "workbook.xlsx,recording.mp4"')
-    ap.add_argument('-o', '--out', help='output .html (default: next to the first workbook)')
-    ap.add_argument('--name', action='append', default=[], help='display name for a phone, in the order of the runs (repeat per phone)')
-    ap.add_argument('--note', action='append', default=[], help='extra line for the notes at the bottom (repeatable)')
-    args = ap.parse_args()
-    data = build(args)
-    out = args.out
+def write_timeline(runs, out=None, names=None, notes=None):
+    """runs: list of run folders or "workbook.xlsx,recording.mp4" strings -> path of the HTML written"""
+    data = build(argparse.Namespace(runs=runs, out=out, name=names or [], note=notes or []))
     if not out:
-        first, _, _ = find_inputs(args.runs[0])
+        first, _, _ = find_inputs(runs[0])
         out = os.path.join(os.path.dirname(os.path.abspath(first)), data['phones'][0]['file'] + '_timeline.html')
     with open(out, 'w', encoding='utf-8') as f:
         f.write(render(data))
     print(f'Wrote {out}')
+    return out
+
+
+def gui():
+    """File pickers, shown when the script is started without arguments (double-click or Run in VS Code)."""
+    import threading
+    import tkinter as tk
+    import webbrowser
+    from tkinter import filedialog, messagebox, ttk
+
+    root = tk.Tk()
+    root.title('Test timeline')
+    root.columnconfigure(1, weight=1)
+    vars_ = {k: tk.StringVar() for k in ('a_x', 'a_v', 'b_x', 'b_v', 'out')}
+    status = tk.StringVar(value='Pick the workbook of a run. The recording is optional; phone B is optional.')
+
+    def pick_folder(prefix):
+        d = filedialog.askdirectory(title='Run folder (workbook and recording inside)')
+        if not d:
+            return
+        xl = sorted(glob.glob(os.path.join(d, '*.xlsx')))
+        mp = sorted(glob.glob(os.path.join(d, '*ScreenRec*.mp4'))) or sorted(glob.glob(os.path.join(d, '*.mp4')))
+        if not xl:
+            messagebox.showwarning('Test timeline', 'No .xlsx workbook in that folder.')
+            return
+        vars_[prefix + '_x'].set(xl[0])
+        vars_[prefix + '_v'].set(max(mp, key=os.path.getsize) if mp else '')
+
+    def pick_xlsx(prefix):
+        f = filedialog.askopenfilename(title='Run workbook', filetypes=[('Excel workbook', '*.xlsx'), ('All files', '*.*')])
+        if not f:
+            return
+        vars_[prefix + '_x'].set(f)
+        if not vars_[prefix + '_v'].get():      # a recording next to the workbook is picked up automatically
+            d = os.path.dirname(f)
+            stem = os.path.splitext(os.path.basename(f))[0]
+            mp = sorted(glob.glob(os.path.join(d, stem + '*.mp4'))) or sorted(glob.glob(os.path.join(d, '*ScreenRec*.mp4')))
+            if mp:
+                vars_[prefix + '_v'].set(mp[0])
+
+    def pick_mp4(prefix):
+        f = filedialog.askopenfilename(title='Screen recording', filetypes=[('MP4 video', '*.mp4'), ('All files', '*.*')])
+        if f:
+            vars_[prefix + '_v'].set(f)
+
+    def pick_out():
+        f = filedialog.asksaveasfilename(title='Save timeline as', defaultextension='.html', filetypes=[('HTML page', '*.html')])
+        if f:
+            vars_['out'].set(f)
+
+    row = 0
+    for prefix, title in (('a', 'Phone A'), ('b', 'Phone B (optional)')):
+        ttk.Label(root, text=title, font=('', 10, 'bold')).grid(row=row, column=0, sticky='w', padx=10, pady=(12, 2))
+        ttk.Button(root, text='Pick run folder…', command=lambda p=prefix: pick_folder(p)).grid(row=row, column=2, padx=10, pady=(12, 2), sticky='ew')
+        row += 1
+        for key, label, cmd in ((prefix + '_x', 'Workbook (.xlsx)', pick_xlsx), (prefix + '_v', 'Recording (.mp4)', pick_mp4)):
+            ttk.Label(root, text=label).grid(row=row, column=0, sticky='w', padx=10)
+            ttk.Entry(root, textvariable=vars_[key], width=80).grid(row=row, column=1, sticky='ew', pady=2)
+            ttk.Button(root, text='Browse…', command=lambda p=prefix, c=cmd: c(p)).grid(row=row, column=2, padx=10, sticky='ew')
+            row += 1
+    ttk.Label(root, text='Save as (optional)').grid(row=row, column=0, sticky='w', padx=10, pady=(12, 2))
+    ttk.Entry(root, textvariable=vars_['out'], width=80).grid(row=row, column=1, sticky='ew', pady=(12, 2))
+    ttk.Button(root, text='Browse…', command=pick_out).grid(row=row, column=2, padx=10, pady=(12, 2), sticky='ew')
+    row += 1
+    go = ttk.Button(root, text='Create timeline')
+    go.grid(row=row, column=0, columnspan=3, padx=10, pady=12, sticky='ew')
+    row += 1
+    ttk.Label(root, textvariable=status, wraplength=760, justify='left').grid(row=row, column=0, columnspan=3, sticky='w', padx=10, pady=(0, 12))
+
+    def work(runs, out):
+        try:
+            path = write_timeline(runs, out)
+            root.after(0, lambda: (status.set(f'Done: {path}'), go.state(['!disabled']), webbrowser.open('file:///' + os.path.abspath(path).replace(os.sep, '/'))))
+        except SystemExit as e:
+            root.after(0, lambda m=str(e): (status.set(f'Stopped: {m}'), go.state(['!disabled'])))
+        except Exception as e:      # shown to the tester instead of a silent window
+            root.after(0, lambda m=f'{type(e).__name__}: {e}': (status.set(f'Error: {m}'), go.state(['!disabled'])))
+
+    def start():
+        runs = []
+        for prefix in ('a', 'b'):
+            x, v = vars_[prefix + '_x'].get().strip(), vars_[prefix + '_v'].get().strip()
+            if x:
+                runs.append(x + ',' + v if v else x + ',')
+        if not runs:
+            messagebox.showinfo('Test timeline', 'Pick at least the workbook for phone A.')
+            return
+        go.state(['disabled'])
+        status.set('Working… a recording takes about a minute per phone. Progress is printed in the terminal.')
+        threading.Thread(target=work, args=(runs, vars_['out'].get().strip() or None), daemon=True).start()
+
+    go.configure(command=start)
+    root.mainloop()
+
+
+def main():
+    if len(sys.argv) == 1:
+        gui()
+        return
+    ap = argparse.ArgumentParser(description='Test timeline (HTML) from one or two run folders. Start without arguments for file pickers.')
+    ap.add_argument('runs', nargs='+', help='run folder, or "workbook.xlsx,recording.mp4"')
+    ap.add_argument('-o', '--out', help='output .html (default: next to the first workbook)')
+    ap.add_argument('--name', action='append', default=[], help='phone name to show, in the order of the runs (repeat per phone)')
+    ap.add_argument('--note', action='append', default=[], help='extra line for the notes at the bottom of the page (repeat for more)')
+    args = ap.parse_args()
+    write_timeline(args.runs, args.out, args.name, args.note)
 
 
 if __name__ == '__main__':
