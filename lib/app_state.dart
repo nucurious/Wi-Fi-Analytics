@@ -32,6 +32,7 @@ import 'services/background_keeper.dart';
 import 'services/health_monitor.dart';
 import 'services/ntp_check.dart';
 import 'services/screen_recorder.dart';
+import 'services/weather_check.dart';
 
 class Settings {
   String host;
@@ -89,6 +90,7 @@ class Settings {
   String locationCode; // e.g. DAL; blank = from the site or GPS
   String pairId; // two-phone call tests: the pair this phone belongs to (P1, P2 ...), blank = none
   String callRole; // '' | 'Base' | 'Mobile' | 'Caller' | 'Callee'
+  bool logWeather; // outside weather at session start and end (one request each to Open-Meteo)
   bool autoScreenRecord; // Video Call builds, Android: ask to record the screen when a session starts
 
   Settings({
@@ -134,6 +136,7 @@ class Settings {
     this.pairId = '',
     this.callRole = '',
     this.autoScreenRecord = kVideoCall,
+    this.logWeather = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -179,6 +182,7 @@ class Settings {
         'pairId': pairId,
         'callRole': callRole,
         'autoScreenRecord': autoScreenRecord,
+        'logWeather': logWeather,
       };
 
   static const _labServers = {'96.37.191.0', '2600:6ce6:4406:6006:8b6e:251:99cb:9c38', '10.92.5.100'};
@@ -237,6 +241,7 @@ class Settings {
       pairId: j['pairId'] as String? ?? d.pairId,
       callRole: j['callRole'] as String? ?? d.callRole,
       autoScreenRecord: j['autoScreenRecord'] as bool? ?? d.autoScreenRecord,
+      logWeather: j['logWeather'] as bool? ?? d.logWeather,
     );
   }
 }
@@ -261,6 +266,14 @@ class AppState extends ChangeNotifier {
   Map<String, int>? _sessionOffsets;
   TestProfile _sessionProfile = TestProfile.manual;
   double? clockOffsetMs; // phone clock minus network time at session start (ms); null = not measured
+  String? weatherStart; // outside weather when the session started; null = not fetched
+
+  /// Outside weather at the phone's position, or null (setting off, no GPS fix, no internet).
+  Future<String?> _weatherNow() async {
+    final p = position;
+    if (!settings.logWeather || p == null) return null;
+    return outsideWeather(p.latitude, p.longitude);
+  }
   Timer? _emailTimer;
   Settings settings = Settings();
 
@@ -2152,6 +2165,8 @@ class AppState extends ChangeNotifier {
     await _autoScreenRecord();
     clockOffsetMs = null;
     unawaited(ntpOffsetMs().then((v) => clockOffsetMs = v));
+    weatherStart = null;
+    unawaited(_weatherNow().then((v) => weatherStart = v));
     _sessionStart = _resumeStart ?? DateTime.now();
     _sessionProfile = p;
     _activeServer = null;
@@ -2263,6 +2278,14 @@ class AppState extends ChangeNotifier {
       }
     }
     b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
+    if (settings.logWeather) {
+      // Outside climate, to read battery temperature and thermal flags against.
+      final weatherEnd = await _weatherNow();
+      weatherStart ??= weatherEnd; // no GPS fix or internet yet when the session started
+      b.writeln(weatherStart == null
+          ? 'Weather:  not available (needs a GPS fix and internet)'
+          : 'Weather:  start ${weatherStart!}${weatherEnd != null && weatherEnd != weatherStart ? '; end $weatherEnd' : ''} (outside, Open-Meteo)');
+    }
     if (recordings.isNotEmpty) {
       b.writeln('Screen recording: ${recordings.map((f) => '${recName(f)} (${(f.lengthSync() / 1048576).toStringAsFixed(1)} MB)').join(', ')}. '
           'Saved in the run folder, not emailed (too large): Export this run, or adb pull the run folder.');

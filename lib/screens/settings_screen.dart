@@ -36,7 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _host, _port, _tcpDur, _tcpPar, _udpMbps, _udpDur, _udpPar, _udpPkt;
   late TextEditingController _twHost, _twPort, _latRate, _twPkt, _pingHost, _latDur, _repeatGap, _walkSettle, _walkGap;
   late bool _keepOn, _logTrack, _latOn, _repeat, _walkRoam, _email, _rotate, _logcat, _hmno, _spWifi;
-  late bool _walkBack, _autoRec;
+  late bool _walkBack, _autoRec, _weather;
   late TextEditingController _emailTo, _smtpUser, _smtpPass, _imei, _locCode, _lcMb, _lcParts, _spSsids, _scanSec;
   late String _env, _callRole;
   late TextEditingController _pairId;
@@ -107,6 +107,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _env = s.testEnvironment;
     _callRole = s.callRole;
     _autoRec = s.autoScreenRecord;
+    _weather = s.logWeather;
     _pairId = TextEditingController(text: s.pairId);
     setState(() => _loaded = true);
   }
@@ -180,6 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       pairId: _pairId.text.trim().toUpperCase(),
       callRole: _callRole,
       autoScreenRecord: _autoRec,
+      logWeather: _weather,
     ));
     if (!mounted) return;
     if (silent) return;
@@ -529,6 +531,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (kLogcat && Platform.isAndroid)
             _intField(_lcParts, 'Logcat files to keep', min: 1, max: 99,
                 helper: 'When full, the oldest file is overwritten (logcat -n). 64 MB x 50 = 3.2 GB max'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Log outside weather'),
+            subtitle: const Text('Temperature, humidity and wind at the start and end of each session, in the summary. '
+                'Sends the position (rounded to about 1 km) to open-meteo.com'),
+            value: _weather,
+            onChanged: (v) {
+              setState(() => _weather = v);
+              _scheduleAutoSave();
+            },
+          ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Keep screen on during tests'),
