@@ -83,7 +83,7 @@ workflows:
         script: dart run tool/setup.dart
       - name: Build APK
         script: |
-          VERSION=1.5.2
+          VERSION=1.5.3
           flutter build apk --release --build-name=$VERSION --build-number=$BUILD_NUMBER \
             --dart-define=VIDEO_CALL=true --dart-define=APP_NAME=Video_Call_Analytics
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Video_Call_Analytics_v$VERSION.apk
@@ -102,7 +102,7 @@ workflows:
       flutter: stable
       vars:
         BUNDLE_ID: com.example.analyticsprov
-        VERSION: "1.4"
+        VERSION: "1.5"
         PROV: "true"
         VIDEO_CALL: "true"
     scripts:

@@ -59,6 +59,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _maybeLoad() {
+    // The role can also be changed on the Test screen: keep this screen's copy in step,
+    // or its next auto-save would put the old role back.
+    if (_loaded && _callRole != widget.state.settings.callRole && !(_autoSave?.isActive ?? false)) {
+      setState(() => _callRole = widget.state.settings.callRole);
+    }
     if (_loaded || !widget.state.initialized) return;
     final s = widget.state.settings;
     _host = TextEditingController(text: s.host);
@@ -429,17 +434,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')), LengthLimitingTextInputFormatter(6)],
           ),
           const SizedBox(height: 8),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: '', label: Text('None')),
-              ButtonSegment(value: 'Caller', label: Text('Caller')),
-              ButtonSegment(value: 'Callee', label: Text('Callee')),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final r in AppState.callRoles)
+                ChoiceChip(
+                  label: Text(r.isEmpty ? 'None' : r),
+                  selected: _callRole == r,
+                  onSelected: (_) {
+                    setState(() => _callRole = r);
+                    _scheduleAutoSave();
+                  },
+                ),
             ],
-            selected: {_callRole},
-            onSelectionChanged: (v) {
-              setState(() => _callRole = v.first);
-              _scheduleAutoSave();
-            },
           ),
           if (kVideoCall && Platform.isAndroid)
             SwitchListTile(

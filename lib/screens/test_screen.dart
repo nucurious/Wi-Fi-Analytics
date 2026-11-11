@@ -54,6 +54,7 @@ class _TestScreenState extends State<TestScreen> {
             _LiveCard(state: s),
             const SizedBox(height: 12),
             _controls(context, s),
+            if (kVideoCall) _roleChips(context, s),
             const SizedBox(height: 16),
             if (s.recent.isNotEmpty) ...[
               Text('Results this session', style: Theme.of(context).textTheme.titleMedium),
@@ -63,6 +64,27 @@ class _TestScreenState extends State<TestScreen> {
           ],
         );
       },
+    );
+  }
+
+  /// Video Call builds: this phone's role in a two-phone test. Can be set before or during a test.
+  Widget _roleChips(BuildContext context, AppState s) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text('Role (optional):', style: Theme.of(context).textTheme.bodySmall),
+          for (final r in AppState.callRoles)
+            ChoiceChip(
+              label: Text(r.isEmpty ? 'None' : r),
+              selected: s.settings.callRole == r,
+              onSelected: (_) => s.setCallRole(r),
+            ),
+        ],
+      ),
     );
   }
 

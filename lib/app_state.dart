@@ -88,7 +88,7 @@ class Settings {
   String testEnvironment; // 'auto' | 'field' | 'lab'
   String locationCode; // e.g. DAL; blank = from the site or GPS
   String pairId; // two-phone call tests: the pair this phone belongs to (P1, P2 ...), blank = none
-  String callRole; // '' | 'Caller' | 'Callee'
+  String callRole; // '' | 'Base' | 'Mobile' | 'Caller' | 'Callee'
   bool autoScreenRecord; // Video Call builds, Android: ask to record the screen when a session starts
 
   Settings({
@@ -1354,6 +1354,19 @@ class AppState extends ChangeNotifier {
   }
 
   // ------------------------------------------------------------------ settings
+
+  /// Roles a phone can take in a two-phone call test. Base = stays put, Mobile = carried.
+  static const callRoles = ['', 'Base', 'Mobile', 'Caller', 'Callee'];
+
+  /// Sets the role from the Test screen, also while a test runs: the run's file name and
+  /// summary are written when the session ends, so they carry the role chosen by then.
+  Future<void> setCallRole(String role) async {
+    if (settings.callRole == role) return;
+    settings.callRole = role;
+    crumb('call role: ${role.isEmpty ? 'none' : role}');
+    await _saveSettings();
+    notifyListeners();
+  }
 
   Future<void> updateSettings(Settings s) async {
     final reloadFence = s.hmnoGeofence != settings.hmnoGeofence;
