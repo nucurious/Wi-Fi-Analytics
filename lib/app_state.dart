@@ -2200,6 +2200,9 @@ class AppState extends ChangeNotifier {
     final end = DateTime.now();
     final prefix = fileName(_sessionProfile, start);
     final recordings = await ScreenRecorder.instance.takeRecordings(start, end);
+    // In the run folder a recording carries the run's file name, like the workbook and summary:
+    // <run name>_ScreenRec_yyyymmdd-hhmmss.mp4 (its own start time, to the second, is kept).
+    String recName(File f) => '${prefix}_${f.uri.pathSegments.last}';
     final tests = recent.where((r) => !r.start.isBefore(start)).toList().reversed.toList();
     String two(int n) => n.toString().padLeft(2, '0');
     final dur = end.difference(start);
@@ -2238,7 +2241,7 @@ class AppState extends ChangeNotifier {
     }
     b.writeln('Geofence: ${lastGeofence == null ? 'no crossings yet' : 'last ${lastGeofence!.summary} at ${_local(lastGeofence!.time)}'}');
     if (recordings.isNotEmpty) {
-      b.writeln('Screen recording: ${recordings.map((f) => '${f.uri.pathSegments.last} (${(f.lengthSync() / 1048576).toStringAsFixed(1)} MB)').join(', ')}. '
+      b.writeln('Screen recording: ${recordings.map((f) => '${recName(f)} (${(f.lengthSync() / 1048576).toStringAsFixed(1)} MB)').join(', ')}. '
           'Saved in the run folder, not emailed (too large): Export this run, or adb pull the run folder.');
     }
     if (logcatFiles.isNotEmpty) {
@@ -2300,7 +2303,7 @@ class AppState extends ChangeNotifier {
         // ScreenRec move: screen recordings made during this session go into the run folder.
         for (final rec in recordings) {
           try {
-            await rec.copy('${runDir.path}/${rec.uri.pathSegments.last}');
+            await rec.copy('${runDir.path}/${recName(rec)}');
             await rec.delete();
           } catch (_) {}
         }
