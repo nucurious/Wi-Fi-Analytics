@@ -512,21 +512,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _intField(_scanSec, 'Ask for a Wi-Fi scan every (seconds, 0 = phone\'s own scans only)', min: 0, max: 3600,
                 helper: 'Android allows an app 4 scans per 2 minutes (30 s). For faster scans turn off '
                     'Developer options > Wi-Fi scan throttling.'),
-          if (kDebugApp)
+          if (kLogcat && Platform.isAndroid)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Record logcat during tests'),
-              subtitle: const Text('Saved per session (gzip) and emailed with the results. See the Data tab for access.'),
+              title: const Text('Record adb logs (logcat) during tests'),
+              subtitle: const Text('Saved per session (gzip) and emailed with the results. See the Data tab for access and Export adb logs.'),
               value: _logcat,
               onChanged: (v) {
               setState(() => _logcat = v);
               _scheduleAutoSave();
             },
             ),
-          if (kDebugApp)
+          if (kLogcat && Platform.isAndroid)
             _intField(_lcMb, 'Logcat file size (MB)', min: 1, max: 1024,
                 helper: '64 MB gzips to ~6 MB and fits in email. 1024 = same as the .bat (1 GB files, too big to email)'),
-          if (kDebugApp)
+          if (kLogcat && Platform.isAndroid)
             _intField(_lcParts, 'Logcat files to keep', min: 1, max: 99,
                 helper: 'When full, the oldest file is overwritten (logcat -n). 64 MB x 50 = 3.2 GB max'),
           SwitchListTile(

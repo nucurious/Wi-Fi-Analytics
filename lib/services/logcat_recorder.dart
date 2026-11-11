@@ -20,6 +20,9 @@ class LogcatRecorder {
   final Future<Directory> Function() root;
   LogcatRecorder(this.root);
 
+  /// This build's application ID, for the adb commands shown to the tester.
+  static String package = 'com.example.analyticsdebug';
+
   Process? _proc;
   Directory? sessionDir;
   String _prefix = 'logcat';
@@ -61,7 +64,7 @@ class LogcatRecorder {
     sessionDir = dir;
     if (!await hasFullAccess()) {
       problem = 'Logcat: only this app\'s own lines. Grant full access once from a computer: '
-          'adb shell pm grant com.example.analyticsdebug android.permission.READ_LOGS';
+          'adb shell pm grant $package android.permission.READ_LOGS';
     }
     final t = _started!;
     final off = t.timeZoneOffset;
@@ -90,6 +93,20 @@ class LogcatRecorder {
       problem = 'Logcat could not start: $e';
       _proc = null;
     }
+  }
+
+  /// One-off export: everything the phone's log buffers hold right now (logcat -d -b all -v time),
+  /// gzipped to <root>/snapshots/<name>.txt.gz. How far back that reaches depends on the phone's
+  /// buffer sizes; a session recording covers the whole session instead.
+  Future<File> snapshot(String name) async {
+    final dir = Directory('${(await root()).path}/snapshots');
+    await dir.create(recursive: true);
+    final out = File('${dir.path}/$name.txt.gz');
+    final proc = await Process.start('logcat', ['-d', '-b', 'all', '-v', 'time']);
+    unawaited(proc.stderr.drain<void>());
+    await proc.stdout.transform(gzip.encoder).pipe(out.openWrite());
+    await proc.exitCode;
+    return out;
   }
 
   /// Stops logcat and gzips each file off the UI thread, oldest first:

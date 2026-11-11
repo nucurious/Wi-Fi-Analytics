@@ -3,6 +3,10 @@
 /// Main app:  Wi-Fi_Analytics_v1.3
 /// Debug app: Analytics_debug_ver1.0 (separate install, also records logcat)
 const bool kDebugApp = bool.fromEnvironment('DEBUG_APP');
+
+/// Builds that can record and export adb logs (logcat): the debug app, Analytics Pro and
+/// Video Call Analytics. Their manifest carries READ_LOGS (tool/setup.dart).
+const bool kLogcat = kDebugApp || bool.fromEnvironment('PROV') || bool.fromEnvironment('VIDEO_CALL');
 const String kAppName = String.fromEnvironment('APP_NAME', defaultValue: 'Wi-Fi_Analytics_v1.3');
 
 /// Analytics-Prov build: phone health sampling (battery, thermal, memory, GPS and logging gaps).

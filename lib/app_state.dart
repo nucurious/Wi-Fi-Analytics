@@ -1355,6 +1355,15 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------------ settings
 
+  /// This build's Android application ID (adb paths and commands shown to the tester).
+  static String get adbPackage => kDebugApp
+      ? 'com.example.analyticsdebug'
+      : kProv
+          ? 'com.example.analyticsprov'
+          : kVideoCall
+              ? 'com.example.videocallanalytics'
+              : 'com.example.wifianalytics';
+
   /// Roles a phone can take in a two-phone call test. Base = stays put, Mobile = carried.
   static const callRoles = ['', 'Base', 'Mobile', 'Caller', 'Callee'];
 
@@ -2166,7 +2175,8 @@ class AppState extends ChangeNotifier {
     _lastAct['svc'] = DateTime.now();
     await _writeResumeMarker(p);
     if (kProv && (Platform.isAndroid || Platform.isIOS)) await health.start(store.directory, DateTime.now, () => position?.timestamp, _local, resume: resuming, recover: _watchdog);
-    if (kDebugApp && settings.recordLogcat) {
+    if (kLogcat && Platform.isAndroid && settings.recordLogcat) {
+      LogcatRecorder.package = adbPackage;
       await logcat.start(fileName(p, _sessionStart), partMb: settings.logcatPartMb, parts: settings.logcatParts);
       notifyListeners();
     }

@@ -21,6 +21,8 @@ final appName = (Platform.environment['APP_NAME']?.trim().isNotEmpty ?? false)
     ? Platform.environment['APP_NAME']!.trim()
     : 'Wi-Fi_Analytics_v1.3';
 final debugApp = Platform.environment['DEBUG_APP'] == 'true';
+// Builds that record and export adb logs: debug app, Analytics Pro, Video Call Analytics.
+final logcatApp = debugApp || Platform.environment['PROV'] == 'true' || Platform.environment['VIDEO_CALL'] == 'true';
 
 void main() {
   final bundleId = Platform.environment['BUNDLE_ID']?.trim();
@@ -69,7 +71,7 @@ void _patchAndroidManifest() {
     final m = RegExp(r'<manifest[^>]*>').firstMatch(xml)!;
     xml = xml.replaceRange(m.end, m.end, '\n$lines');
   }
-  if (debugApp && !xml.contains('android.permission.READ_LOGS')) {
+  if (logcatApp && !xml.contains('android.permission.READ_LOGS')) {
     // A development permission: only adb can grant it. tools:ignore keeps the
     // release lint check from failing the build.
     if (!xml.contains('xmlns:tools=')) {
@@ -101,7 +103,7 @@ void _patchAndroidManifest() {
     }
   }
   f.writeAsStringSync(xml);
-  stdout.writeln('Patched AndroidManifest.xml${debugApp ? ' (debug app, READ_LOGS)' : ''}');
+  stdout.writeln('Patched AndroidManifest.xml${logcatApp ? ' (READ_LOGS)' : ''}');
 }
 
 // Analytics Pro launcher icon: a small cell tower with Wi-Fi arcs (adaptive icon, Android 8+; older phones keep the default icon).

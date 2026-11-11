@@ -130,7 +130,7 @@ class _DataScreenState extends State<DataScreen> {
               IconButton(onPressed: _loadRuns, icon: const Icon(Icons.refresh), tooltip: 'Refresh'),
             ]),
             Text(
-              'One folder per test run: Excel workbook, summary${kDebugApp ? ', logcat' : ''}. '
+              'One folder per test run: Excel workbook, summary${kLogcat ? ', adb logs' : ''}. '
               'Tap a run to export it, or on a computer: adb pull /sdcard/Android/data/$appPackage/files/runs',
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -159,6 +159,54 @@ class _DataScreenState extends State<DataScreen> {
     if (mounted) setState(() => _logcatAccess = ok);
   }
 
+  bool _exportingLogs = false;
+
+  /// One button: dump the phone's log buffers as they are now, add the most recent
+  /// recorded session (if any), and open the share sheet.
+  Future<void> _exportAdbLogs(BuildContext buttonContext) async {
+    if (_exportingLogs) return;
+    final box = buttonContext.findRenderObject() as RenderBox?;
+    final origin = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+    setState(() => _exportingLogs = true);
+    try {
+      final rec = widget.state.logcat;
+      LogcatRecorder.package = AppState.adbPackage;
+      final now = DateTime.now();
+      String two(int n) => n.toString().padLeft(2, '0');
+      // Same pattern as the run files, with the second so two exports never collide.
+      final name = '${widget.state.fileName(null, now, true)}${two(now.second)}_adb_logs';
+      final files = <File>[await rec.snapshot(name)];
+      final root = await rec.root();
+      if (await root.exists()) {
+        final sessions = (await root.list().toList())
+            .whereType<Directory>()
+            .where((d) => !d.path.endsWith('/snapshots'))
+            .toList()
+          ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+        if (sessions.isNotEmpty) {
+          final last = (await sessions.first.list().toList())
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.txt.gz') || f.path.endsWith('session_info.txt'))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
+          files.addAll(last);
+        }
+      }
+      final ok = await LogcatRecorder.hasFullAccess();
+      if (mounted) setState(() => _logcatAccess = ok);
+      await SharePlus.instance.share(ShareParams(
+        files: files.map((f) => XFile(f.path, mimeType: f.path.endsWith('.gz') ? 'application/gzip' : 'text/plain')).toList(),
+        subject: '$kAppName adb logs',
+        sharePositionOrigin: origin,
+      ));
+      if (!ok) _snack('Only this app\'s own log lines were captured. Grant READ_LOGS once from a computer (see above).');
+    } catch (e) {
+      _snack('adb logs could not be exported: $e');
+    } finally {
+      if (mounted) setState(() => _exportingLogs = false);
+    }
+  }
+
   Future<void> _shareLogcat(BuildContext buttonContext) async {
     final dir = await widget.state.logcat.root();
     final files = !await dir.exists()
@@ -179,7 +227,7 @@ class _DataScreenState extends State<DataScreen> {
 
   Widget _logcatCard(BuildContext context) {
     final rec = widget.state.logcat;
-    final pkg = 'com.example.analyticsdebug';
+    final pkg = AppState.adbPackage;
     final access = _logcatAccess;
     return Card(
       child: Padding(
@@ -187,13 +235,13 @@ class _DataScreenState extends State<DataScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Logcat (debug app)', style: Theme.of(context).textTheme.titleMedium),
+            Text('adb logs (logcat)', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(rec.running
                 ? 'Recording to ${rec.sessionDir?.path ?? ''}'
-                : 'Recorded during every test session (logcat -b all -v time, rotating files). '
-                    'Emailed with the results, shared from here, or: '
-                    'adb pull /sdcard/Android/data/com.example.analyticsdebug/files/logcat'),
+                : 'Recorded during every test session when Settings > Record adb logs is on '
+                    '(logcat -b all -v time, rotating files). Emailed with the results, exported from here, or: '
+                    'adb pull /sdcard/Android/data/$pkg/files/logcat'),
             if (rec.problem != null) Text(rec.problem!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             const SizedBox(height: 6),
             Text(
@@ -206,13 +254,33 @@ class _DataScreenState extends State<DataScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
+            Builder(
+              builder: (c) => SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton.icon(
+                  onPressed: _exportingLogs ? null : () => _exportAdbLogs(c),
+                  icon: _exportingLogs
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.bug_report_outlined),
+                  label: Text(_exportingLogs ? 'Collecting logs…' : 'Export adb logs'),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              child: Text(
+                'One tap: saves what the phone\'s log buffers hold right now, adds the last recorded session, and opens Share.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
             Wrap(spacing: 8, children: [
               OutlinedButton(onPressed: _checkLogcat, child: const Text('Check access')),
               Builder(
                 builder: (c) => OutlinedButton.icon(
                   onPressed: () => _shareLogcat(c),
                   icon: const Icon(Icons.ios_share),
-                  label: const Text('Share logcat'),
+                  label: const Text('Share all saved sessions'),
                 ),
               ),
             ]),
@@ -246,7 +314,7 @@ class _DataScreenState extends State<DataScreen> {
           const SizedBox(height: 8),
           _runsCard(context),
           const SizedBox(height: 8),
-          if (kDebugApp) ...[_logcatCard(context), const SizedBox(height: 8)],
+          if (kLogcat && Platform.isAndroid) ...[_logcatCard(context), const SizedBox(height: 8)],
           Card(
             child: Column(
               children: [
