@@ -9,6 +9,7 @@ import '../app_state.dart';
 import 'health_card.dart';
 import 'share_run.dart';
 import '../models.dart';
+import '../services/background_keeper.dart';
 import '../services/screen_recorder.dart';
 
 class TestScreen extends StatefulWidget {
@@ -99,6 +100,28 @@ class _TestScreenState extends State<TestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (kVideoCall) ...[
+              Text('Video call', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: s.startVideoCallTest,
+                  icon: const Icon(Icons.video_call),
+                  label: const Text('Start video call test', style: TextStyle(fontSize: 16)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 12),
+                child: Text(
+                  'Logs latency ($latencyBy), radio, Wi-Fi and GPS with no test traffic, until you stop. '
+                  '${Platform.isAndroid && s.settings.autoScreenRecord ? 'Asks to record the screen first: tap Start now, then ' : 'Then '}'
+                  'make the call in WhatsApp, Teams, Webex or Meet and come back here to stop. Files are named …_videocall_…',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const Divider(height: 20),
+            ],
             Text('Traffic profiles', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             SizedBox(

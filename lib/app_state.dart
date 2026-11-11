@@ -244,10 +244,10 @@ class Settings {
 enum UdpDirection { download, upload, both }
 
 /// How a test session was started.
-enum TestProfile { manual, drive, walk, lab }
+enum TestProfile { manual, drive, walk, lab, videoCall }
 
 extension TestProfileLabel on TestProfile {
-  String get label => switch (this) { TestProfile.manual => 'Manual', TestProfile.drive => 'Drive', TestProfile.walk => 'Walk', TestProfile.lab => 'Lab' };
+  String get label => switch (this) { TestProfile.manual => 'Manual', TestProfile.drive => 'Drive', TestProfile.walk => 'Walk', TestProfile.lab => 'Lab', TestProfile.videoCall => 'Video call' };
 }
 
 class AppState extends ChangeNotifier {
@@ -716,7 +716,7 @@ class AppState extends ChangeNotifier {
       if (!await _resumeFile.exists()) return;
       final j = jsonDecode(await _resumeFile.readAsString()) as Map<String, dynamic>;
       final at = DateTime.tryParse('${j['at']}');
-      final ok = const {'drive', 'lab', 'walk'}.contains(j['profile']) &&
+      final ok = const {'drive', 'lab', 'walk', 'videoCall'}.contains(j['profile']) &&
           at != null &&
           DateTime.now().difference(at) < const Duration(hours: 12);
       if (!ok) {
@@ -753,6 +753,9 @@ class AppState extends ChangeNotifier {
         break;
       case 'walk':
         await startWalkTest();
+        break;
+      case 'videoCall':
+        await startVideoCallTest();
         break;
       default:
         await startDriveTest();
@@ -2083,6 +2086,7 @@ class AppState extends ChangeNotifier {
       TestProfile.walk => 'walk',
       TestProfile.lab => 'lab',
       TestProfile.manual => 'stationary',
+      TestProfile.videoCall => 'videocall',
     };
     final t = at ?? DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
@@ -2471,8 +2475,15 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Video call test: a session for the length of a call made in another app
+  /// (WhatsApp, Teams, Webex, Meet, FaceTime ...). No throughput traffic that would
+  /// compete with the call: only the light latency probe plus the usual radio, Wi-Fi,
+  /// GPS and SIM logging, until Stop. In Video Call builds the screen recording is
+  /// asked for as the session starts (see _autoScreenRecord). Files are named ..._videocall_...
+  Future<void> startVideoCallTest() => runLatencyTest(videoCall: true);
+
   /// Stand-alone latency test (no throughput traffic).
-  Future<void> runLatencyTest() async {
+  Future<void> runLatencyTest({bool videoCall = false}) async {
     if (running) return;
     running = true;
     latencyPhase = true;
@@ -2480,7 +2491,11 @@ class AppState extends ChangeNotifier {
     lastError = null;
     phase = 'Latency';
     elapsed = 0;
-    plannedSeconds = settings.latencyDuration;
+    plannedSeconds = videoCall ? 0 : settings.latencyDuration; // a call lasts until Stop
+    if (videoCall) {
+      phase = 'Video call';
+      profile = TestProfile.videoCall;
+    }
     liveSeries.clear();
     notifyListeners();
     if (settings.keepScreenOn) {
@@ -2488,19 +2503,22 @@ class AppState extends ChangeNotifier {
         await WakelockPlus.enable();
       } catch (_) {}
     }
+    await _beginSession(videoCall ? TestProfile.videoCall : TestProfile.manual);
+    // After _beginSession: in Video Call builds it waits for the screen-recording prompt.
     final start = DateTime.now();
-    await _beginSession(TestProfile.manual);
     Timer? ticker;
     try {
       await _startLatency();
       final probe = _probe;
-      if (probe == null) {
+      // A video call session still runs (radio, Wi-Fi, GPS, recording) when latency cannot be measured.
+      if (probe == null && !videoCall) {
         lastError = latencyProblem;
         return;
       }
-      final type = 'Latency ${probe.method.label}';
+      final method = probe?.method.label;
+      final type = videoCall ? (method == null ? 'Video call' : 'Video call $method') : 'Latency $method';
       phase = type;
-      final testId = '${_compact(start)}-latency${probe.method.label.toLowerCase()}';
+      final testId = '${_compact(start)}-${videoCall ? 'videocall' : 'latency'}${(method ?? '').toLowerCase()}';
       final startPos = position;
       final startRadio = radio;
       final site = activeSite;
@@ -2527,7 +2545,7 @@ class AppState extends ChangeNotifier {
         durationSeconds: window.end!.difference(start).inMilliseconds / 1000,
         stoppedByUser: _cancelSequence,
         error: (stats == null || stats.received == 0) ? (latencyProblem ?? 'No replies') : null,
-      ).withLatency(stats, latencyLabel, apInfo: startRadio.apSummary);
+      ).withLatency(stats, probe == null ? null : latencyLabel, apInfo: startRadio.apSummary);
       recent.insert(0, record);
       if (recent.length > 50) recent.removeLast();
       store.addTest([
@@ -2543,7 +2561,7 @@ class AppState extends ChangeNotifier {
         stats?.lossPercent?.toStringAsFixed(3),
         record.stoppedByUser ? 1 : 0,
         record.error,
-        probe.target,
+        probe?.target,
         null, null, null,
         probe is TwampLightProbe ? probe.packetBytes : null,
         site?.id,
@@ -2561,6 +2579,7 @@ class AppState extends ChangeNotifier {
       running = false;
       latencyPhase = false;
       phase = null;
+      profile = TestProfile.manual;
       await store.flush();
       try {
         await WakelockPlus.disable();
