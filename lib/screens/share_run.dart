@@ -5,9 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_config.dart';
+import '../services/background_keeper.dart';
 
 /// Android package of this app (for the adb pull path shown to testers).
-String get appPackage => kDebugApp ? 'com.example.analyticsdebug' : 'com.example.wifianalytics';
+String get appPackage => kDebugApp
+    ? 'com.example.analyticsdebug'
+    : kProv
+        ? 'com.example.analyticsprov'
+        : kVideoCall
+            ? 'com.example.videocallanalytics'
+            : 'com.example.wifianalytics';
 
 /// Shares every file of one test-run folder (workbook, summary, logcat) via
 /// the phone's share sheet: Drive, email, Files, Teams ...
