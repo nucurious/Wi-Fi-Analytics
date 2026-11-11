@@ -332,7 +332,14 @@ class PingProbe implements LatencyProbe {
   final Stopwatch _clock = Stopwatch();
   late DateTime _startWall;
   late double _intervalS;
-  int _nextToSettle = 1; // ping numbers packets from 1
+  // ping numbers its packets from 1. The time each one was sent is estimated from the last reply
+  // (reply time minus its round-trip time), not from a fixed schedule: ping runs behind 5 per second
+  // when the phone is busy or the network changes, and a fixed schedule then counts every later
+  // reply as lost.
+  int _nextSeq = 1; // next ping sequence number to report
+  int _emitted = 0; // results reported so far (ProbeResult.seq)
+  int _anchorSeq = 1;
+  double _anchorT = 0; // seconds on _clock when _anchorSeq was sent
   final Map<int, double> _replies = {}; // seq -> rtt ms
   bool _stopping = false;
 
@@ -362,25 +369,45 @@ class PingProbe implements LatencyProbe {
     _sweepTimer = Timer.periodic(const Duration(milliseconds: 250), (_) => _settle());
   }
 
+  double _sentAt(int seq) => _anchorT + (seq - _anchorSeq) * _intervalS;
+
+  void _emit(int seq, double? rtt) {
+    final at = _startWall.add(Duration(microseconds: (_sentAt(seq) * 1e6).round()));
+    _controller.add(ProbeResult(++_emitted, at, rtt));
+  }
+
   void _onLine(String line) {
     final m = _reply.firstMatch(line);
     if (m == null) return;
     final seq = int.parse(m[1]!);
-    if (seq < _nextToSettle) return; // already counted lost
-    _replies[seq] = double.parse(m[2]!);
+    final rtt = double.parse(m[2]!);
+    final sent = _clock.elapsedMicroseconds / 1e6 - rtt / 1000;
+    if (seq < _nextSeq) {
+      // Already reported lost. A reply that is just late stays lost; but if this packet left much
+      // later than estimated, ping was running behind (no network, phone busy): the packets reported
+      // lost in between cover the time nothing was answered, and counting resumes from this reply.
+      if (sent - _sentAt(seq) <= 2 * _intervalS) return;
+      _anchorSeq = seq;
+      _anchorT = sent;
+      _replies.removeWhere((k, _) => k <= seq);
+      _emit(seq, rtt);
+      _nextSeq = seq + 1;
+      return;
+    }
+    _anchorSeq = seq;
+    _anchorT = sent;
+    _replies[seq] = rtt;
   }
 
-  /// Packet n is sent about (n-1) * interval after start. Once its timeout
-  /// has passed, report it as received or lost, in order.
+  /// Once a packet's timeout has passed, report it as received or lost, in order.
   void _settle({bool all = false}) {
     final elapsed = _clock.elapsedMicroseconds / 1e6;
     while (true) {
-      final sendAt = (_nextToSettle - 1) * _intervalS;
+      final sendAt = _sentAt(_nextSeq);
       if (!all && sendAt + timeout.inMilliseconds / 1000 > elapsed) break;
       if (all && sendAt > elapsed) break;
-      final seq = _nextToSettle++;
-      final sentAt = _startWall.add(Duration(microseconds: (sendAt * 1e6).round()));
-      _controller.add(ProbeResult(seq, sentAt, _replies.remove(seq)));
+      final seq = _nextSeq++;
+      _emit(seq, _replies.remove(seq));
     }
   }
 
